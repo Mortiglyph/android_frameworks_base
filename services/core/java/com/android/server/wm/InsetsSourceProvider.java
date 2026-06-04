@@ -515,6 +515,9 @@ class InsetsSourceProvider {
         final Point surfacePosition = getWindowFrameSurfacePosition(mWin);
         mPosition.set(surfacePosition);
         mAdapter = new ControlAdapter(surfacePosition);
+        if ((mSource.getType() & WindowInsets.Type.systemBars()) != 0) {
+            setClientVisible(target.isRequestedVisible(mSource.getType()));
+        }
         final boolean initiallyVisible = isInitiallyVisible(target);
         if (mSource.getType() == WindowInsets.Type.ime()) {
             setClientVisible(target.isRequestedVisible(WindowInsets.Type.ime()));

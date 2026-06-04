@@ -27,6 +27,7 @@ import static android.view.WindowManager.LayoutParams.TYPE_PRESENTATION;
 import static android.view.WindowManager.LayoutParams.TYPE_STATUS_BAR;
 import static android.view.WindowManager.LayoutParams.TYPE_WALLPAPER;
 import static android.view.WindowManagerPolicyConstants.APPLICATION_LAYER;
+import static android.window.DisplayAreaOrganizer.FEATURE_APP_ZOOM_OUT;
 import static android.window.DisplayAreaOrganizer.FEATURE_DEFAULT_TASK_CONTAINER;
 import static android.window.DisplayAreaOrganizer.FEATURE_FULLSCREEN_MAGNIFICATION;
 import static android.window.DisplayAreaOrganizer.FEATURE_IME_PLACEHOLDER;
@@ -240,6 +241,24 @@ public class DisplayAreaPolicyBuilderTest {
         }
 
         assertThat(hasImePlaceholderFeature).isTrue();
+    }
+
+    @Test
+    public void testBuilder_defaultPolicy_appZoomOutIncludesSystemBars() {
+        final DisplayAreaPolicy.Provider defaultProvider = DisplayAreaPolicy.Provider.fromResources(
+                resourcesWithProvider(""));
+        final DisplayAreaPolicyBuilder.Result defaultPolicy =
+                (DisplayAreaPolicyBuilder.Result) defaultProvider.instantiate(mWms, mDisplayContent,
+                        mRoot, mImeContainer);
+        final Matcher<WindowContainer> appZoomOutDescendantMatcher = descendantOfOneOf(
+                defaultPolicy.getDisplayAreas(FEATURE_APP_ZOOM_OUT));
+
+        assertThat(appZoomOutDescendantMatcher.matches(
+                defaultPolicy.findAreaForToken(tokenOfType(TYPE_STATUS_BAR)))).isTrue();
+        assertThat(appZoomOutDescendantMatcher.matches(
+                defaultPolicy.findAreaForToken(tokenOfType(TYPE_NOTIFICATION_SHADE)))).isTrue();
+        assertThat(appZoomOutDescendantMatcher.matches(
+                defaultPolicy.findAreaForToken(tokenOfType(TYPE_NAVIGATION_BAR)))).isTrue();
     }
 
     @Test

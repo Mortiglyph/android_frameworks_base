@@ -45,4 +45,10 @@ public interface AppZoomOut {
      */
     void setTopLevelProgress(float progress, long vsyncId, Handler sysuiMainHandler);
 
+    /**
+     * Applies a direct scale/translation transform for the OneStep sidebar zoom state.
+     */
+    void setSidebarTransform(float scaleX, float scaleY, float offsetX, float offsetY,
+            boolean enabled);
+
 }

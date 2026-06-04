@@ -256,7 +256,7 @@ public class PhoneStatusBarView extends FrameLayout {
         // correctly updated and closed.
         if (DesktopExperienceFlags.ENABLE_REMOVE_STATUS_BAR_INPUT_LAYER.isTrue()
                 && event.getAction() == MotionEvent.ACTION_DOWN
-                && !mTouchableRegion.contains((int) event.getRawX(), (int) event.getRawY())) {
+                && !isTouchWithinTouchableRegion(event)) {
             return false;
         }
 
@@ -281,6 +281,18 @@ public class PhoneStatusBarView extends FrameLayout {
     @Override
     public boolean onInterceptTouchEvent(MotionEvent event) {
         return mTouchEventHandler.onInterceptTouchEvent(event);
+    }
+
+    private boolean isTouchWithinTouchableRegion(MotionEvent event) {
+        if (mTouchableRegion.contains((int) event.getRawX(), (int) event.getRawY())) {
+            return true;
+        }
+
+        // OneStep's AppZoomOut transform moves the status bar surface to a physical region below
+        // the top overlay while input dispatch maps MotionEvent#getX/Y back into the status bar's
+        // local coordinates. The raw display coordinate can therefore sit outside the logical
+        // mTouchableRegion even though this window was the intended touch target.
+        return mTouchableRegion.contains((int) event.getX(), (int) event.getY());
     }
 
     public void updateResources() {

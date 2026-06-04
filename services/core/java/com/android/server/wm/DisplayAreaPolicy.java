@@ -27,6 +27,7 @@ import static android.view.WindowManager.LayoutParams.TYPE_NOTIFICATION_SHADE;
 import static android.view.WindowManager.LayoutParams.TYPE_SECURE_SYSTEM_OVERLAY;
 import static android.view.WindowManager.LayoutParams.TYPE_STATUS_BAR;
 import static android.view.WindowManager.LayoutParams.TYPE_STATUS_BAR_SUB_PANEL;
+import static android.view.WindowManager.LayoutParams.TYPE_SYSTEM_ALERT;
 import static android.view.WindowManager.LayoutParams.TYPE_VOLUME_OVERLAY;
 import static android.view.WindowManager.LayoutParams.TYPE_WALLPAPER;
 import static android.window.DisplayAreaOrganizer.FEATURE_APP_ZOOM_OUT;
@@ -167,11 +168,9 @@ public abstract class DisplayAreaPolicy {
                                 .build())
                         .addFeature(new Feature.Builder(wmService.mPolicy, "AppZoomOut",
                                 FEATURE_APP_ZOOM_OUT)
-                                .upTo(TYPE_VOLUME_OVERLAY)
-                                .except(TYPE_NAVIGATION_BAR, TYPE_NAVIGATION_BAR_PANEL,
-                                        TYPE_STATUS_BAR, TYPE_STATUS_BAR_SUB_PANEL,
-                                        TYPE_NOTIFICATION_SHADE, TYPE_KEYGUARD_DIALOG,
-                                        TYPE_WALLPAPER)
+                                .upTo(TYPE_NAVIGATION_BAR)
+                                .except(TYPE_NAVIGATION_BAR_PANEL, TYPE_STATUS_BAR_SUB_PANEL,
+                                        TYPE_KEYGUARD_DIALOG, TYPE_SYSTEM_ALERT, TYPE_WALLPAPER)
                                 .build());
             }
             if (USE_DISPLAY_AREA_FOR_FULLSCREEN_MAGNIFICATION) {

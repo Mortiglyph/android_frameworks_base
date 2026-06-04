@@ -100,6 +100,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.Message;
 import android.os.RemoteException;
+import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.Trace;
@@ -136,6 +137,7 @@ import com.android.internal.policy.ForceShowNavBarSettingsObserver;
 import com.android.internal.policy.GestureNavigationSettingsObserver;
 import com.android.internal.protolog.ProtoLog;
 import com.android.internal.statusbar.LetterboxDetails;
+import com.android.internal.sidebar.ISidebarService;
 import com.android.internal.util.function.TriFunction;
 import com.android.internal.view.AppearanceRegion;
 import com.android.internal.widget.PointerLocationView;
@@ -511,6 +513,19 @@ public class DisplayPolicy {
 
                 @Override
                 public void onSwipeFromRight() {
+                    if (mDisplayContent.isDefaultDisplay) {
+                        final ISidebarService sidebar = ISidebarService.Stub.asInterface(
+                                ServiceManager.getService("sidebar"));
+                        if (sidebar != null) {
+                            try {
+                                if (sidebar.handleRightEdgeSwipe()) {
+                                    return;
+                                }
+                            } catch (RemoteException e) {
+                                Slog.w(TAG, "Failed to notify sidebar gesture", e);
+                            }
+                        }
+                    }
                     final Region excludedRegion = Region.obtain();
                     synchronized (mLock) {
                         mDisplayContent.calculateSystemGestureExclusion(
@@ -537,6 +552,23 @@ public class DisplayPolicy {
                         }
                     }
                     excludedRegion.recycle();
+                }
+
+                @Override
+                public void onSwipeUpFromZoomOutTopRight() {
+                    if (!mDisplayContent.isDefaultDisplay) {
+                        return;
+                    }
+                    final ISidebarService sidebar = ISidebarService.Stub.asInterface(
+                            ServiceManager.getService("sidebar"));
+                    if (sidebar == null) {
+                        return;
+                    }
+                    try {
+                        sidebar.handleZoomOutTopRightSwipeUp();
+                    } catch (RemoteException e) {
+                        Slog.w(TAG, "Failed to notify sidebar zoomout exit gesture", e);
+                    }
                 }
 
                 @Override

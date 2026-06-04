@@ -60,6 +60,10 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
     private static final int SWIPE_FROM_BOTTOM = 2;
     private static final int SWIPE_FROM_RIGHT = 3;
     private static final int SWIPE_FROM_LEFT = 4;
+    private static final int SWIPE_UP_FROM_ZOOM_OUT_TOP_RIGHT = 5;
+
+    private static final int SIDEBAR_CONTENT_WIDTH_NUMERATOR = 807;
+    private static final int SIDEBAR_DESIGN_WIDTH = 1080;
 
     private static final int TRACKPAD_SWIPE_NONE = 0;
     private static final int TRACKPAD_SWIPE_FROM_TOP = 1;
@@ -249,6 +253,9 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
                     } else if (swipe == SWIPE_FROM_LEFT) {
                         if (DEBUG) Slog.d(TAG, "Firing onSwipeFromLeft");
                         mCallbacks.onSwipeFromLeft();
+                    } else if (swipe == SWIPE_UP_FROM_ZOOM_OUT_TOP_RIGHT) {
+                        if (DEBUG) Slog.d(TAG, "Firing onSwipeUpFromZoomOutTopRight");
+                        mCallbacks.onSwipeUpFromZoomOutTopRight();
                     }
                 }
                 break;
@@ -404,7 +411,35 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
                 && elapsed < SWIPE_TIMEOUT_MS) {
             return SWIPE_FROM_LEFT;
         }
+        if (detectSwipeUpFromZoomOutTopRight(fromX, fromY, x, y, elapsed)) {
+            return SWIPE_UP_FROM_ZOOM_OUT_TOP_RIGHT;
+        }
         return SWIPE_NONE;
+    }
+
+    private boolean detectSwipeUpFromZoomOutTopRight(float fromX, float fromY, float x, float y,
+            long elapsed) {
+        if (screenWidth <= 0 || screenHeight <= 0 || elapsed >= SWIPE_TIMEOUT_MS) {
+            return false;
+        }
+        final int contentWidth = Math.max(1,
+                Math.round(screenWidth * SIDEBAR_CONTENT_WIDTH_NUMERATOR
+                        / (float) SIDEBAR_DESIGN_WIDTH));
+        final int contentHeight = Math.max(1,
+                Math.round(contentWidth * screenHeight / (float) screenWidth));
+        final int contentTop = screenHeight - contentHeight;
+        final int hotWidth = Math.max(mSwipeDistanceThreshold * 3,
+                mSwipeStartThreshold.right * 4);
+        final int hotHeight = Math.max(mSwipeDistanceThreshold * 3,
+                mSwipeStartThreshold.top * 4);
+        final float deltaX = x - fromX;
+        final float deltaY = y - fromY;
+        return fromX >= contentWidth - hotWidth
+                && fromX <= contentWidth + mSwipeStartThreshold.right
+                && fromY >= contentTop - mSwipeStartThreshold.top
+                && fromY <= contentTop + hotHeight
+                && deltaY < -mSwipeDistanceThreshold
+                && Math.abs(deltaY) >= Math.abs(deltaX);
     }
 
     public void dump(@NonNull PrintWriter pw, @NonNull String prefix) {
@@ -457,6 +492,7 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
         void onSwipeFromBottom();
         void onSwipeFromRight();
         void onSwipeFromLeft();
+        void onSwipeUpFromZoomOutTopRight();
         void onFling(int durationMs);
         void onDown();
         void onUpOrCancel();

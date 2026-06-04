@@ -59,6 +59,8 @@ public class AppZoomOutController implements RemoteCallable<AppZoomOutController
     private final TopLevelZoomOutDisplayAreaOrganizer mTopLevelDisplayAreaOrganizer;
     private final ShellExecutor mMainExecutor;
     private final AppZoomOutImpl mImpl = new AppZoomOutImpl();
+    private boolean mAppDisplayAreaOrganizerRegistered;
+    private boolean mTopLevelDisplayAreaOrganizerRegistered;
 
     private final DisplayController.OnDisplaysChangedListener mDisplaysChangedListener =
             new DisplayController.OnDisplaysChangedListener() {
@@ -106,9 +108,7 @@ public class AppZoomOutController implements RemoteCallable<AppZoomOutController
         mTopLevelDisplayAreaOrganizer = topLevelDisplayAreaOrganizer;
         mMainExecutor = mainExecutor;
 
-        if (spatialModelAppPushback() || enableLppAssistInvocationEffect()) {
-            shellInit.addInitCallback(this::onInit, this);
-        }
+        shellInit.addInitCallback(this::onInit, this);
     }
 
     private void onInit() {
@@ -119,10 +119,10 @@ public class AppZoomOutController implements RemoteCallable<AppZoomOutController
         updateDisplayLayout(mContext.getDisplayId());
 
         if (spatialModelAppPushback()) {
-            mAppDisplayAreaOrganizer.registerOrganizer();
+            registerAppDisplayAreaOrganizerIfNeeded();
         }
         if (enableLppAssistInvocationEffect()) {
-            mTopLevelDisplayAreaOrganizer.registerOrganizer();
+            registerTopLevelDisplayAreaOrganizerIfNeeded();
         }
     }
 
@@ -140,8 +140,29 @@ public class AppZoomOutController implements RemoteCallable<AppZoomOutController
      * @param sysuiMainHandler The main handler from SystemUI (required for CUJ tracking)
      */
     private void setTopLevelProgress(float progress, long vsyncId, Handler sysuiMainHandler) {
-        if (enableLppAssistInvocationEffect()) {
-            mTopLevelDisplayAreaOrganizer.setProgress(progress, vsyncId, sysuiMainHandler);
+        if (progress > 0f && !registerTopLevelDisplayAreaOrganizerIfNeeded()) {
+            return;
+        }
+        if (!mTopLevelDisplayAreaOrganizerRegistered) {
+            return;
+        }
+        mTopLevelDisplayAreaOrganizer.setProgress(progress, vsyncId, sysuiMainHandler);
+        if (progress == 0f && !enableLppAssistInvocationEffect()) {
+            unregisterTopLevelDisplayAreaOrganizerIfNeeded();
+        }
+    }
+
+    private void setSidebarTransform(float scaleX, float scaleY, float offsetX, float offsetY,
+            boolean enabled) {
+        if (enabled && !registerAppDisplayAreaOrganizerIfNeeded()) {
+            return;
+        }
+        if (!mAppDisplayAreaOrganizerRegistered) {
+            return;
+        }
+        mAppDisplayAreaOrganizer.setSidebarTransform(scaleX, scaleY, offsetX, offsetY, enabled);
+        if (!enabled && !spatialModelAppPushback()) {
+            unregisterAppDisplayAreaOrganizerIfNeeded();
         }
     }
 
@@ -152,7 +173,7 @@ public class AppZoomOutController implements RemoteCallable<AppZoomOutController
             return;
         }
         mAppDisplayAreaOrganizer.setDisplayLayout(newDisplayLayout);
-        if (enableLppAssistInvocationEffect()) {
+        if (mTopLevelDisplayAreaOrganizerRegistered) {
             mTopLevelDisplayAreaOrganizer.setDisplayLayout(newDisplayLayout);
         }
     }
@@ -173,9 +194,63 @@ public class AppZoomOutController implements RemoteCallable<AppZoomOutController
         // TODO: verify if there is synchronization issues.
         if (toRotation != ROTATION_UNDEFINED) {
             mAppDisplayAreaOrganizer.onRotateDisplay(mContext, toRotation);
-            if (enableLppAssistInvocationEffect()) {
+            if (mTopLevelDisplayAreaOrganizerRegistered) {
                 mTopLevelDisplayAreaOrganizer.onRotateDisplay(mContext, toRotation);
             }
+        }
+    }
+
+    private boolean registerTopLevelDisplayAreaOrganizerIfNeeded() {
+        if (mTopLevelDisplayAreaOrganizerRegistered) {
+            return true;
+        }
+        try {
+            mTopLevelDisplayAreaOrganizer.registerOrganizer();
+            mTopLevelDisplayAreaOrganizerRegistered = true;
+            return true;
+        } catch (RuntimeException e) {
+            Slog.w(TAG, "Failed to register top-level zoom organizer", e);
+            return false;
+        }
+    }
+
+    private boolean registerAppDisplayAreaOrganizerIfNeeded() {
+        if (mAppDisplayAreaOrganizerRegistered) {
+            return true;
+        }
+        try {
+            mAppDisplayAreaOrganizer.registerOrganizer();
+            mAppDisplayAreaOrganizerRegistered = true;
+            return true;
+        } catch (RuntimeException e) {
+            Slog.w(TAG, "Failed to register app zoom organizer", e);
+            return false;
+        }
+    }
+
+    private void unregisterAppDisplayAreaOrganizerIfNeeded() {
+        if (!mAppDisplayAreaOrganizerRegistered) {
+            return;
+        }
+        try {
+            mAppDisplayAreaOrganizer.unregisterOrganizer();
+        } catch (RuntimeException e) {
+            Slog.w(TAG, "Failed to unregister app zoom organizer", e);
+        } finally {
+            mAppDisplayAreaOrganizerRegistered = false;
+        }
+    }
+
+    private void unregisterTopLevelDisplayAreaOrganizerIfNeeded() {
+        if (!mTopLevelDisplayAreaOrganizerRegistered) {
+            return;
+        }
+        try {
+            mTopLevelDisplayAreaOrganizer.unregisterOrganizer();
+        } catch (RuntimeException e) {
+            Slog.w(TAG, "Failed to unregister top-level zoom organizer", e);
+        } finally {
+            mTopLevelDisplayAreaOrganizerRegistered = false;
         }
     }
 
@@ -196,6 +271,13 @@ public class AppZoomOutController implements RemoteCallable<AppZoomOutController
         public void setTopLevelProgress(float progress, long vsyncId, Handler sysuiMainHandler) {
             mMainExecutor.execute(() -> AppZoomOutController.this.setTopLevelProgress(progress,
                     vsyncId, sysuiMainHandler));
+        }
+
+        @Override
+        public void setSidebarTransform(float scaleX, float scaleY, float offsetX, float offsetY,
+                boolean enabled) {
+            mMainExecutor.execute(() -> AppZoomOutController.this.setSidebarTransform(scaleX,
+                    scaleY, offsetX, offsetY, enabled));
         }
     }
 }
