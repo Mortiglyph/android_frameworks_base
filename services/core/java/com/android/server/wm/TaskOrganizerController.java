@@ -1219,6 +1219,35 @@ class TaskOrganizerController extends ITaskOrganizerController.Stub {
         }
     }
 
+    @Override
+    public void setCanAffectSystemUiFlags(WindowContainerToken token,
+            boolean canAffectSystemUiFlags) {
+        enforceTaskPermission("setCanAffectSystemUiFlags()");
+        final long origId = Binder.clearCallingIdentity();
+        try {
+            synchronized (mGlobalLock) {
+                if (token == null) {
+                    Slog.w(TAG, "Could not set system UI flag control because token is null");
+                    return;
+                }
+                final WindowContainer wc = WindowContainer.fromBinder(token.asBinder());
+                if (wc == null) {
+                    Slog.w(TAG, "Could not resolve window from token");
+                    return;
+                }
+                final Task task = wc.asTask();
+                if (task == null) {
+                    Slog.w(TAG, "Could not resolve task from token");
+                    return;
+                }
+                task.setCanAffectSystemUiFlags(canAffectSystemUiFlags);
+                mService.mWindowManager.mWindowPlacerLocked.requestTraversal();
+            }
+        } finally {
+            Binder.restoreCallingIdentity(origId);
+        }
+    }
+
     public boolean handleInterceptBackPressedOnTaskRoot(ActivityRecord r) {
         // Intercept are set on the root task
         if (!shouldInterceptBackPressedOnRootTask(r.getRootTask())) {

@@ -89,4 +89,11 @@ interface ITaskOrganizerController {
     @JavaPassthrough(annotation="@android.annotation.RequiresPermission(value = "
             + "android.Manifest.permission.MANAGE_ACTIVITY_TASKS)")
     void clearExcludeLayersFromTaskSnapshot(in WindowContainerToken task);
+
+    /**
+     * Sets whether windows in the task can drive system UI appearance.
+     */
+    @JavaPassthrough(annotation="@android.annotation.RequiresPermission(value = "
+            + "android.Manifest.permission.MANAGE_ACTIVITY_TASKS)")
+    void setCanAffectSystemUiFlags(in WindowContainerToken task, boolean canAffectSystemUiFlags);
 }

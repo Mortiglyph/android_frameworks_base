@@ -65,6 +65,7 @@ import android.os.Looper;
 import android.os.PatternMatcher;
 import android.os.PowerManager;
 import android.os.RemoteException;
+import android.os.ServiceManager;
 import android.os.SystemClock;
 import android.os.Trace;
 import android.os.UserHandle;
@@ -89,6 +90,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.AssistUtils;
 import com.android.internal.app.IVoiceInteractionSessionListener;
 import com.android.internal.logging.UiEventLogger;
+import com.android.internal.sidebar.ISidebarService;
 import com.android.internal.util.ScreenshotHelper;
 import com.android.internal.util.ScreenshotRequest;
 import com.android.systemui.LauncherProxyService.LauncherProxyListener;
@@ -134,6 +136,7 @@ import com.android.systemui.unfold.progress.UnfoldTransitionProgressForwarder;
 import com.android.systemui.user.domain.interactor.HeadlessSystemUserMode;
 import com.android.wm.shell.back.BackAnimation;
 import com.android.wm.shell.shared.desktopmode.DesktopState;
+import com.android.wm.shell.sidebar.ISidebarTaskView;
 import com.android.wm.shell.sysui.ShellInterface;
 
 import dagger.Lazy;
@@ -679,6 +682,7 @@ public class LauncherProxyService implements CallbackController<LauncherProxyLis
             addInterface(mUnfoldTransitionProgressForwarder.orElse(null), params);
             // Add all the interfaces exposed by the shell
             mShellInterface.createExternalInterfaces(params);
+            publishSidebarTaskViewShell(params.getBinder(ISidebarTaskView.DESCRIPTOR));
 
             try {
                 Log.d(TAG_OPS, "LauncherProxyService connected, initializing launcher proxy");
@@ -721,6 +725,25 @@ public class LauncherProxyService implements CallbackController<LauncherProxyLis
             mCurrentBoundedUserId = -1;
         }
     };
+
+    private void publishSidebarTaskViewShell(IBinder binder) {
+        if (binder == null) {
+            Log.w(TAG_OPS, "publishSidebarTaskViewShell: no Shell binder");
+            return;
+        }
+        ISidebarService sidebarService = ISidebarService.Stub.asInterface(
+                ServiceManager.getService("sidebar"));
+        if (sidebarService == null) {
+            Log.w(TAG_OPS, "publishSidebarTaskViewShell: sidebar service unavailable");
+            return;
+        }
+        try {
+            sidebarService.registerSidebarTaskViewShell(binder);
+            Log.i(TAG_OPS, "publishSidebarTaskViewShell: registered");
+        } catch (RemoteException e) {
+            Log.w(TAG_OPS, "publishSidebarTaskViewShell failed", e);
+        }
+    }
 
     /** Propagates the flags for all displays to be notified to Launcher. */
     @VisibleForTesting

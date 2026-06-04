@@ -125,6 +125,7 @@ import com.android.wm.shell.shared.desktopmode.DesktopConfig;
 import com.android.wm.shell.shared.desktopmode.DesktopConfigImpl;
 import com.android.wm.shell.shared.desktopmode.DesktopState;
 import com.android.wm.shell.shared.desktopmode.DesktopStateImpl;
+import com.android.wm.shell.sidebar.SidebarTaskViewController;
 import com.android.wm.shell.splitscreen.SplitScreen;
 import com.android.wm.shell.splitscreen.SplitScreenController;
 import com.android.wm.shell.startingsurface.StartingSurface;
@@ -850,6 +851,20 @@ public abstract class WMShellBaseModule {
         return new TaskViewRepository();
     }
 
+    @WMSingleton
+    @Provides
+    static SidebarTaskViewController provideSidebarTaskViewController(Context context,
+            ShellInit shellInit,
+            ShellController shellController,
+            ShellCommandHandler shellCommandHandler,
+            ShellTaskOrganizer shellTaskOrganizer,
+            @ShellMainThread ShellExecutor mainExecutor,
+            Optional<AppZoomOut> appZoomOut,
+            Transitions transitions) {
+        return new SidebarTaskViewController(context, shellInit, shellController,
+                shellCommandHandler, shellTaskOrganizer, mainExecutor, appZoomOut, transitions);
+    }
+
     // Workaround for dynamic overriding with a default implementation, see {@link DynamicOverride}
     @BindsOptionalOf
     @DynamicOverride
@@ -1185,6 +1200,7 @@ public abstract class WMShellBaseModule {
             Optional<RecentsTransitionHandler> recentsTransitionHandlerOptional,
             Optional<OneHandedController> oneHandedControllerOptional,
             Optional<AppZoomOutController> appZoomOutControllerOptional,
+            SidebarTaskViewController sidebarTaskViewController,
             Optional<AppHandles> appHandlesOptional,
             Optional<HideDisplayCutoutController> hideDisplayCutoutControllerOptional,
             Optional<ActivityEmbeddingController> activityEmbeddingOptional,

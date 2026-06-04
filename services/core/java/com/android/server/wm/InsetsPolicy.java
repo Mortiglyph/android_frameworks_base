@@ -165,17 +165,19 @@ class InsetsPolicy {
 
     /** Updates the target which can control system bars. */
     void updateBarControlTarget(@Nullable WindowState focusedWin) {
+        final WindowState controlWin = focusedWin == null || focusedWin.canAffectSystemUiFlags()
+                ? focusedWin : mPolicy.getTopFullscreenOpaqueWindow();
         @InsetsType
         final int[] requestedVisibleTypes =
-                {focusedWin != null ? focusedWin.getRequestedVisibleTypes() : 0};
+                {controlWin != null ? controlWin.getRequestedVisibleTypes() : 0};
         if ((mShowingTransientTypes & Type.statusBars()) != 0
                         && mFakeStatusControlTarget != null
                         && mFakeStatusControlTarget != getStatusControlTarget(
-                                focusedWin, true, requestedVisibleTypes)
+                                controlWin, true, requestedVisibleTypes)
                 || (mShowingTransientTypes & Type.navigationBars()) != 0
                         && mFakeNavControlTarget != null
                         && mFakeNavControlTarget != getNavControlTarget(
-                                focusedWin, true, requestedVisibleTypes)) {
+                                controlWin, true, requestedVisibleTypes)) {
             // The fake control target is the target which was hiding the system bar before showing
             // the transient bar. Abort the transient bar if any of the fake control targets is
             // changed, so the request of the new target can be applied.
@@ -185,16 +187,16 @@ class InsetsPolicy {
         final WindowState notificationShade = mPolicy.getNotificationShade();
         final WindowState topApp = mPolicy.getTopFullscreenOpaqueWindow();
         final InsetsControlTarget statusControlTarget =
-                getStatusControlTarget(focusedWin, false /* fake */, requestedVisibleTypes);
+                getStatusControlTarget(controlWin, false /* fake */, requestedVisibleTypes);
         mFakeStatusControlTarget = statusControlTarget == mShowingTransientControlTarget
-                ? getStatusControlTarget(focusedWin, true /* fake */, requestedVisibleTypes)
+                ? getStatusControlTarget(controlWin, true /* fake */, requestedVisibleTypes)
                 : statusControlTarget == notificationShade
                         ? getStatusControlTarget(topApp, true /* fake */, requestedVisibleTypes)
                         : null;
         final InsetsControlTarget navControlTarget =
-                getNavControlTarget(focusedWin, false /* fake */, requestedVisibleTypes);
+                getNavControlTarget(controlWin, false /* fake */, requestedVisibleTypes);
         mFakeNavControlTarget = navControlTarget == mShowingTransientControlTarget
-                ? getNavControlTarget(focusedWin, true /* fake */, requestedVisibleTypes)
+                ? getNavControlTarget(controlWin, true /* fake */, requestedVisibleTypes)
                 : navControlTarget == notificationShade
                         ? getNavControlTarget(topApp, true /* fake */, requestedVisibleTypes)
                         : null;

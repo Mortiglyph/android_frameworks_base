@@ -352,6 +352,21 @@ public class TaskOrganizer extends WindowOrganizer {
     }
 
     /**
+     * Sets whether windows in the task can drive system UI appearance.
+     *
+     * @hide
+     */
+    @RequiresPermission(android.Manifest.permission.MANAGE_ACTIVITY_TASKS)
+    public void setCanAffectSystemUiFlags(@NonNull WindowContainerToken task,
+            boolean canAffectSystemUiFlags) {
+        try {
+            mTaskOrganizerController.setCanAffectSystemUiFlags(task, canAffectSystemUiFlags);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Gets the executor to run callbacks on.
      * @hide
      */
