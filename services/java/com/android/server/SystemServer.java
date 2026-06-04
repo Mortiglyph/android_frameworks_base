@@ -258,6 +258,7 @@ import com.android.server.security.FileIntegrityService;
 import com.android.server.security.KeyAttestationApplicationIdProviderService;
 import com.android.server.security.KeyChainSystemService;
 import com.android.server.security.advancedprotection.AdvancedProtectionService;
+import com.android.server.sidebar.SidebarManagerService;
 import com.android.server.security.authenticationpolicy.AuthenticationPolicyService;
 import com.android.server.security.authenticationpolicy.SecureLockDeviceService;
 import com.android.server.security.authenticationpolicy.WatchRangingService;
@@ -1730,6 +1731,7 @@ public final class SystemServer implements Dumpable {
             ServiceManager.addService(Context.WINDOW_SERVICE, wm, /* allowIsolated= */ false,
                     DUMP_FLAG_PRIORITY_CRITICAL | DUMP_FLAG_PRIORITY_HIGH
                             | DUMP_FLAG_PROTO);
+            ServiceManager.addService("sidebar", new SidebarManagerService(context));
             t.traceEnd();
 
             t.traceBegin("SetWindowManagerService");

@@ -3463,6 +3463,10 @@
     <permission android:name="android.permission.START_TASKS_FROM_RECENTS"
         android:protectionLevel="signature|privileged|recents" />
 
+    <!-- @hide Allows the bundled OneStep sidebar to register with system gestures. -->
+    <permission android:name="android.permission.SIDEBAR_SERVICE"
+        android:protectionLevel="signature|privileged" />
+
     <!-- @SystemApi @hide Allows an application to call APIs that allow it to do interactions
          across the users on the device, using singleton services and
          user-targeted broadcasts.  This permission is not available to

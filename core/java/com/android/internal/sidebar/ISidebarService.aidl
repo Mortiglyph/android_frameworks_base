@@ -1,0 +1,15 @@
+package com.android.internal.sidebar;
+
+import android.os.IBinder;
+import com.android.internal.sidebar.ISidebar;
+
+/** @hide */
+interface ISidebarService {
+    void registerSidebar(in ISidebar sidebar);
+    void registerSidebarTaskViewShell(in IBinder shell);
+    IBinder getSidebarTaskViewShell();
+    void enterRightSidebar(int flags);
+    void exitSidebar(int flags);
+    boolean handleRightEdgeSwipe();
+    boolean handleZoomOutTopRightSwipeUp();
+}
