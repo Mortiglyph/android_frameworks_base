@@ -1,5 +1,6 @@
 package com.android.internal.sidebar;
 
+import android.content.Intent;
 import android.os.IBinder;
 import com.android.internal.sidebar.ISidebar;
 
@@ -10,6 +11,8 @@ interface ISidebarService {
     IBinder getSidebarTaskViewShell();
     void enterRightSidebar(int flags);
     void exitSidebar(int flags);
+    void handleSidebarShareList();
+    void showGlobalShare(in Intent intent);
     boolean handleRightEdgeSwipe();
     boolean handleZoomOutTopRightSwipeUp();
 }

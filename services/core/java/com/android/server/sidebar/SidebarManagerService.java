@@ -1,6 +1,7 @@
 package com.android.server.sidebar;
 
 import android.content.Context;
+import android.content.Intent;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.RemoteException;
@@ -93,6 +94,38 @@ public final class SidebarManagerService extends ISidebarService.Stub {
             sidebar.onExitSidebarMode(flags);
         } catch (RemoteException e) {
             Slog.w(TAG, "exitSidebar failed", e);
+            clearSidebar();
+        }
+    }
+
+    @Override
+    public void handleSidebarShareList() {
+        mContext.enforceCallingOrSelfPermission(
+                android.Manifest.permission.SIDEBAR_SERVICE, "handleSidebarShareList");
+        ISidebar sidebar = getSidebar();
+        if (sidebar == null) {
+            return;
+        }
+        try {
+            sidebar.handleSidebarShareList();
+        } catch (RemoteException e) {
+            Slog.w(TAG, "handleSidebarShareList failed", e);
+            clearSidebar();
+        }
+    }
+
+    @Override
+    public void showGlobalShare(Intent intent) {
+        mContext.enforceCallingOrSelfPermission(
+                android.Manifest.permission.SIDEBAR_SERVICE, "showGlobalShare");
+        ISidebar sidebar = getSidebar();
+        if (sidebar == null) {
+            return;
+        }
+        try {
+            sidebar.showGlobalShare(intent);
+        } catch (RemoteException e) {
+            Slog.w(TAG, "showGlobalShare failed", e);
             clearSidebar();
         }
     }
