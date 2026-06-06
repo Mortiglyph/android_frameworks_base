@@ -1,10 +1,16 @@
 package com.android.server.sidebar;
 
+import android.app.ActivityManager;
+import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.Binder;
 import android.os.IBinder;
 import android.os.RemoteException;
+import android.os.UserHandle;
+import android.os.UserManager;
 import android.provider.Settings;
 import android.util.Slog;
 
@@ -23,32 +29,52 @@ import java.io.PrintWriter;
 public final class SidebarManagerService extends ISidebarService.Stub {
     private static final String TAG = "SidebarManagerService";
     private static final String SIDEBAR_ENABLED = "side_bar_mode";
+    private static final String SIDEBAR_SWITCH_STATUS = "sidebar_switch_status";
     private static final String SIDEBAR_ZOOM_TYPE = "side_bar_zoom_type";
     private static final int MODE_RIGHT = 2;
+    private static final ComponentName SIDEBAR_SERVICE_COMPONENT = new ComponentName(
+            "com.smartisanos.sidebar", "com.smartisanos.sidebar.SidebarService");
 
     private final Context mContext;
     private final Object mLock = new Object();
     private ISidebar mSidebar;
     private IBinder mSidebarTaskViewShell;
+    private boolean mHasPendingEnter;
+    private int mPendingEnterMode;
+    private int mPendingEnterFlags;
 
     public SidebarManagerService(Context context) {
         mContext = context;
+        registerUserUnlockedReceiver();
     }
 
     @Override
     public void registerSidebar(ISidebar sidebar) {
         mContext.enforceCallingOrSelfPermission(
                 android.Manifest.permission.SIDEBAR_SERVICE, "registerSidebar");
+        boolean dispatchPendingEnter = false;
+        int pendingMode = 0;
+        int pendingFlags = 0;
         synchronized (mLock) {
             mSidebar = sidebar;
             Slog.i(TAG, "registerSidebar: " + (sidebar != null));
             if (sidebar != null) {
+                final IBinder sidebarBinder = sidebar.asBinder();
                 try {
-                    sidebar.asBinder().linkToDeath(this::clearSidebar, 0);
+                    sidebarBinder.linkToDeath(() -> clearSidebar(sidebarBinder), 0);
+                    if (mHasPendingEnter) {
+                        dispatchPendingEnter = true;
+                        pendingMode = mPendingEnterMode;
+                        pendingFlags = mPendingEnterFlags;
+                        clearPendingEnterLocked();
+                    }
                 } catch (RemoteException e) {
                     mSidebar = null;
                 }
             }
+        }
+        if (dispatchPendingEnter) {
+            notifyEnterSidebar(sidebar, pendingMode, pendingFlags);
         }
     }
 
@@ -62,7 +88,7 @@ public final class SidebarManagerService extends ISidebarService.Stub {
             Slog.i(TAG, "registerSidebarTaskViewShell: " + (shell != null));
             if (shell != null) {
                 try {
-                    shell.linkToDeath(this::clearSidebarTaskViewShell, 0);
+                    shell.linkToDeath(() -> clearSidebarTaskViewShell(shell), 0);
                 } catch (RemoteException e) {
                     mSidebarTaskViewShell = null;
                 }
@@ -94,7 +120,7 @@ public final class SidebarManagerService extends ISidebarService.Stub {
             sidebar.onExitSidebarMode(flags);
         } catch (RemoteException e) {
             Slog.w(TAG, "exitSidebar failed", e);
-            clearSidebar();
+            clearSidebar(sidebar.asBinder());
         }
     }
 
@@ -110,7 +136,7 @@ public final class SidebarManagerService extends ISidebarService.Stub {
             sidebar.handleSidebarShareList();
         } catch (RemoteException e) {
             Slog.w(TAG, "handleSidebarShareList failed", e);
-            clearSidebar();
+            clearSidebar(sidebar.asBinder());
         }
     }
 
@@ -126,17 +152,14 @@ public final class SidebarManagerService extends ISidebarService.Stub {
             sidebar.showGlobalShare(intent);
         } catch (RemoteException e) {
             Slog.w(TAG, "showGlobalShare failed", e);
-            clearSidebar();
+            clearSidebar(sidebar.asBinder());
         }
     }
 
     @Override
     public boolean handleRightEdgeSwipe() {
-        if (Settings.Global.getInt(mContext.getContentResolver(), SIDEBAR_ENABLED, 1) != 1) {
-            Slog.d(TAG, "handleRightEdgeSwipe ignored: disabled");
-            return false;
-        }
-        return enterSidebar(MODE_RIGHT, 1);
+        Slog.d(TAG, "handleRightEdgeSwipe ignored: right edge is reserved for back gestures");
+        return false;
     }
 
     @Override
@@ -157,17 +180,16 @@ public final class SidebarManagerService extends ISidebarService.Stub {
     private boolean enterSidebar(int mode, int flags) {
         ISidebar sidebar = getSidebar();
         if (sidebar == null) {
-            Slog.w(TAG, "enterSidebar ignored: no registered sidebar callback");
+            if (!isCurrentUserUnlockingOrUnlocked()) {
+                Slog.d(TAG, "enterSidebar ignored: current user is locked");
+                return false;
+            }
+            Slog.w(TAG, "enterSidebar pending: no registered sidebar callback");
+            setPendingEnter(mode, flags);
+            startSidebarServiceForCurrentUser();
             return false;
         }
-        try {
-            sidebar.onEnterSidebarMode(mode, flags);
-            return true;
-        } catch (RemoteException e) {
-            Slog.w(TAG, "enterSidebar failed", e);
-            clearSidebar();
-            return false;
-        }
+        return notifyEnterSidebar(sidebar, mode, flags);
     }
 
     private ISidebar getSidebar() {
@@ -176,18 +198,106 @@ public final class SidebarManagerService extends ISidebarService.Stub {
         }
     }
 
-    private void clearSidebar() {
+    private void clearSidebar(IBinder sidebarBinder) {
         synchronized (mLock) {
+            if (mSidebar != null && mSidebar.asBinder() != sidebarBinder) {
+                return;
+            }
             Slog.i(TAG, "clearSidebar");
             mSidebar = null;
         }
+        if (isSidebarEnabled()) {
+            startSidebarServiceForCurrentUser();
+        }
     }
 
-    private void clearSidebarTaskViewShell() {
+    private void clearSidebarTaskViewShell(IBinder shell) {
         synchronized (mLock) {
+            if (mSidebarTaskViewShell != shell) {
+                return;
+            }
             Slog.i(TAG, "clearSidebarTaskViewShell");
             mSidebarTaskViewShell = null;
         }
+    }
+
+    private void registerUserUnlockedReceiver() {
+        IntentFilter filter = new IntentFilter(Intent.ACTION_USER_UNLOCKED);
+        mContext.registerReceiverForAllUsers(new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (!Intent.ACTION_USER_UNLOCKED.equals(intent.getAction())
+                        || !isSidebarEnabled()) {
+                    return;
+                }
+                int userId = intent.getIntExtra(Intent.EXTRA_USER_HANDLE,
+                        UserHandle.USER_SYSTEM);
+                startSidebarService(UserHandle.of(userId));
+            }
+        }, filter, null /* broadcastPermission */, null /* scheduler */);
+    }
+
+    private boolean notifyEnterSidebar(ISidebar sidebar, int mode, int flags) {
+        try {
+            sidebar.onEnterSidebarMode(mode, flags);
+            return true;
+        } catch (RemoteException e) {
+            Slog.w(TAG, "enterSidebar failed", e);
+            clearSidebar(sidebar.asBinder());
+            return false;
+        }
+    }
+
+    private void setPendingEnter(int mode, int flags) {
+        synchronized (mLock) {
+            mHasPendingEnter = true;
+            mPendingEnterMode = mode;
+            mPendingEnterFlags = flags;
+        }
+    }
+
+    private void clearPendingEnterLocked() {
+        mHasPendingEnter = false;
+        mPendingEnterMode = 0;
+        mPendingEnterFlags = 0;
+    }
+
+    private boolean isSidebarEnabled() {
+        return Settings.Global.getInt(mContext.getContentResolver(), SIDEBAR_ENABLED, 1) == 1;
+    }
+
+    private void startSidebarServiceForCurrentUser() {
+        final int userId = ActivityManager.getCurrentUser();
+        if (!isUserUnlockingOrUnlocked(userId)) {
+            Slog.d(TAG, "startSidebarService ignored: current user is locked");
+            return;
+        }
+        startSidebarService(UserHandle.of(userId));
+    }
+
+    private void startSidebarService(UserHandle user) {
+        Intent intent = new Intent();
+        intent.setComponent(SIDEBAR_SERVICE_COMPONENT);
+        try {
+            resetSidebarUiState();
+            mContext.startServiceAsUser(intent, user);
+        } catch (RuntimeException e) {
+            Slog.w(TAG, "Failed to start SidebarService", e);
+        }
+    }
+
+    private void resetSidebarUiState() {
+        Settings.Global.putInt(mContext.getContentResolver(), SIDEBAR_SWITCH_STATUS, 0);
+        Settings.Global.putInt(mContext.getContentResolver(), SIDEBAR_ZOOM_TYPE, -1);
+    }
+
+    private boolean isCurrentUserUnlockingOrUnlocked() {
+        return isUserUnlockingOrUnlocked(ActivityManager.getCurrentUser());
+    }
+
+    private boolean isUserUnlockingOrUnlocked(int userId) {
+        UserManager userManager = UserManager.get(mContext);
+        return userManager != null && userManager.isUserUnlockingOrUnlocked(userId);
     }
 
     @Override
@@ -205,6 +315,7 @@ public final class SidebarManagerService extends ISidebarService.Stub {
         pw.println("  registered=" + (getSidebar() != null));
         synchronized (mLock) {
             pw.println("  shellTaskViewRegistered=" + (mSidebarTaskViewShell != null));
+            pw.println("  pendingEnter=" + mHasPendingEnter);
         }
     }
 

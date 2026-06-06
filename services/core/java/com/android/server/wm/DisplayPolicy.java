@@ -572,6 +572,40 @@ public class DisplayPolicy {
                 }
 
                 @Override
+                public void onThumbPullDown() {
+                    if (!mDisplayContent.isDefaultDisplay) {
+                        return;
+                    }
+                    final ISidebarService sidebar = ISidebarService.Stub.asInterface(
+                            ServiceManager.getService("sidebar"));
+                    if (sidebar == null) {
+                        return;
+                    }
+                    try {
+                        sidebar.enterRightSidebar(1);
+                    } catch (RemoteException e) {
+                        Slog.w(TAG, "Failed to notify sidebar thumb pull-down gesture", e);
+                    }
+                }
+
+                @Override
+                public void onSwipeFromTopRightDiagonal() {
+                    if (!mDisplayContent.isDefaultDisplay) {
+                        return;
+                    }
+                    final ISidebarService sidebar = ISidebarService.Stub.asInterface(
+                            ServiceManager.getService("sidebar"));
+                    if (sidebar == null) {
+                        return;
+                    }
+                    try {
+                        sidebar.enterRightSidebar(1);
+                    } catch (RemoteException e) {
+                        Slog.w(TAG, "Failed to notify sidebar top-right gesture", e);
+                    }
+                }
+
+                @Override
                 public void onFling(int duration) {
                     if (mService.mPowerManagerInternal != null) {
                         mService.mPowerManagerInternal.setPowerBoost(

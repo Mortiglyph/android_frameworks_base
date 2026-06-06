@@ -61,6 +61,7 @@ import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.Trace;
 import android.provider.DeviceConfig;
+import android.provider.Settings;
 import android.util.ArraySet;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -150,6 +151,9 @@ public class EdgeBackGestureHandler {
 
     private static final int MAX_NUM_LOGGED_PREDICTIONS = 10;
     private static final int MAX_NUM_LOGGED_GESTURES = 10;
+    private static final String SIDEBAR_ENABLED = "side_bar_mode";
+    private static final float SIDEBAR_TOP_RIGHT_GESTURE_HOT_WIDTH_RATIO = 0.30f;
+    private static final float SIDEBAR_TOP_RIGHT_GESTURE_HOT_HEIGHT_RATIO = 0.36f;
 
     public static final boolean DEBUG_MISSING_GESTURE = false;
     public static final String DEBUG_MISSING_GESTURE_TAG = "NoBackGesture";
@@ -1117,6 +1121,9 @@ public class EdgeBackGestureHandler {
         if (isInsidePip || isInDesktopExcludeRegion || ev.getDisplayId() != mMainDisplayId) {
             return false;
         }
+        if (isInSidebarTopRightGestureRegion(x, y)) {
+            return false;
+        }
 
         int app = -1;
         if (mVocab != null) {
@@ -1164,6 +1171,21 @@ public class EdgeBackGestureHandler {
         mInRejectedExclusion = mUnrestrictedExcludeRegion.contains(x, y);
         mLogGesture = true;
         return withinRange;
+    }
+
+    private boolean isInSidebarTopRightGestureRegion(int x, int y) {
+        if (!isSidebarEnabled() || mDisplaySize.x <= 0 || mDisplaySize.y <= 0) {
+            return false;
+        }
+        final int hotWidth = Math.round(
+                mDisplaySize.x * SIDEBAR_TOP_RIGHT_GESTURE_HOT_WIDTH_RATIO);
+        final int hotHeight = Math.round(
+                mDisplaySize.y * SIDEBAR_TOP_RIGHT_GESTURE_HOT_HEIGHT_RATIO);
+        return x >= mDisplaySize.x - hotWidth && y <= hotHeight;
+    }
+
+    private boolean isSidebarEnabled() {
+        return Settings.Global.getInt(mContext.getContentResolver(), SIDEBAR_ENABLED, 1) == 1;
     }
 
     private void cancelGesture(MotionEvent ev) {

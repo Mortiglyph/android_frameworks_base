@@ -16,6 +16,7 @@
 package com.android.systemui.statusbar.phone
 
 import android.app.StatusBarManager.WINDOW_STATUS_BAR
+import android.provider.Settings
 import android.util.Log
 import android.view.Display.DEFAULT_DISPLAY
 import android.view.GestureDetector
@@ -61,6 +62,9 @@ import javax.inject.Named
 import javax.inject.Provider
 
 private const val TAG = "PhoneStatusBarViewController"
+private const val SIDEBAR_ENABLED = "side_bar_mode"
+private const val SIDEBAR_TOP_RIGHT_GESTURE_HOT_WIDTH_RATIO = 0.30f
+private const val SIDEBAR_TOP_RIGHT_GESTURE_HOT_HEIGHT_RATIO = 0.36f
 
 /** Controller for [PhoneStatusBarView]. */
 class PhoneStatusBarViewController
@@ -329,11 +333,24 @@ private constructor(
         private var initialTouchX = 0f
         private var initialTouchY = 0f
         private var isIntercepting = false
+        private var isIgnoringSidebarTopRightGesture = false
         private val cachedEvents = mutableListOf<MotionEvent>()
 
         override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
             if (event.action == MotionEvent.ACTION_DOWN) {
+                isIgnoringSidebarTopRightGesture = isSidebarTopRightGestureRegion(event)
+                if (isIgnoringSidebarTopRightGesture) {
+                    clearCachedEvents()
+                    isIntercepting = false
+                    return false
+                }
                 dispatchEventToShadeDisplayPolicy(event)
+            }
+            if (isIgnoringSidebarTopRightGesture) {
+                if (isUpOrCancel(event)) {
+                    isIgnoringSidebarTopRightGesture = false
+                }
+                return false
             }
 
             // Let ShadeViewController intercept touch events when flexiglass is disabled.
@@ -374,6 +391,15 @@ private constructor(
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             onTouch(event)
+            if (event.action == MotionEvent.ACTION_DOWN) {
+                isIgnoringSidebarTopRightGesture = isSidebarTopRightGestureRegion(event)
+            }
+            if (isIgnoringSidebarTopRightGesture) {
+                if (isUpOrCancel(event)) {
+                    isIgnoringSidebarTopRightGesture = false
+                }
+                return true
+            }
 
             // If panels aren't enabled, ignore the gesture and don't pass it down to the
             // panel view.
@@ -429,6 +455,25 @@ private constructor(
         private fun clearCachedEvents() {
             cachedEvents.forEach { it.recycle() }
             cachedEvents.clear()
+        }
+
+        private fun isUpOrCancel(event: MotionEvent): Boolean {
+            return event.action == MotionEvent.ACTION_UP ||
+                event.action == MotionEvent.ACTION_CANCEL
+        }
+
+        private fun isSidebarTopRightGestureRegion(event: MotionEvent): Boolean {
+            if (Settings.Global.getInt(context.contentResolver, SIDEBAR_ENABLED, 1) != 1) {
+                return false
+            }
+            val displayMetrics = context.resources.displayMetrics
+            if (displayMetrics.widthPixels <= 0 || displayMetrics.heightPixels <= 0) {
+                return false
+            }
+            val hotWidth = displayMetrics.widthPixels * SIDEBAR_TOP_RIGHT_GESTURE_HOT_WIDTH_RATIO
+            val hotHeight =
+                displayMetrics.heightPixels * SIDEBAR_TOP_RIGHT_GESTURE_HOT_HEIGHT_RATIO
+            return event.rawX >= displayMetrics.widthPixels - hotWidth && event.rawY <= hotHeight
         }
     }
 
