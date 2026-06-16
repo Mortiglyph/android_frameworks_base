@@ -19,8 +19,11 @@ package com.android.systemui.statusbar.phone;
 import android.annotation.NonNull;
 import android.content.Context;
 import android.content.res.Resources;
+import android.database.ContentObserver;
 import android.graphics.Rect;
 import android.graphics.Region;
+import android.os.Handler;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.DisplayCutout;
 import android.view.Gravity;
@@ -72,6 +75,7 @@ import javax.inject.Provider;
 @SysUISingleton
 public final class ShadeTouchableRegionManager implements Dumpable {
     private static final String TAG = "TouchableRegionManager";
+    private static final String SIDEBAR_SWITCH_STATUS = "sidebar_switch_status";
 
     private final Context mContext;
     private final HeadsUpManager mHeadsUpManager;
@@ -94,6 +98,7 @@ public final class ShadeTouchableRegionManager implements Dumpable {
     private boolean mShouldAdjustInsets = false;
     private boolean mForceCollapsedUntilLayout = false;
     private Boolean mCommunalVisible = false;
+    private boolean mIsSidebarShowing = false;
     private final Region mTouchableRegion = new Region();
     private @Nullable Rect mShadeBounds = null;
     private int mDisplayCutoutTouchableRegionSize;
@@ -103,6 +108,7 @@ public final class ShadeTouchableRegionManager implements Dumpable {
     private View mNotificationPanelView;
 
     private final OnComputeInternalInsetsListener mOnComputeInternalInsetsListener;
+    private final ContentObserver mSidebarStateObserver;
 
     @Inject
     public ShadeTouchableRegionManager(
@@ -194,11 +200,23 @@ public final class ShadeTouchableRegionManager implements Dumpable {
         mPrimaryBouncerInteractor = primaryBouncerInteractor;
         mAlternateBouncerInteractor = alternateBouncerInteractor;
         mOnComputeInternalInsetsListener = this::onComputeInternalInsets;
+        mSidebarStateObserver = new ContentObserver(new Handler(context.getMainLooper())) {
+            @Override
+            public void onChange(boolean selfChange) {
+                onSidebarStateChanged();
+            }
+        };
+        mIsSidebarShowing = isSidebarShowing();
+        mContext.getContentResolver().registerContentObserver(
+                Settings.Global.getUriFor(SIDEBAR_SWITCH_STATUS),
+                false,
+                mSidebarStateObserver);
     }
 
     protected void setup(@NonNull View notificationShadeWindowView) {
         mNotificationShadeWindowView = notificationShadeWindowView;
         mNotificationPanelView = mNotificationShadeWindowView.findViewById(R.id.notification_panel);
+        updateTouchableRegion();
     }
 
     @Override
@@ -210,6 +228,8 @@ public final class ShadeTouchableRegionManager implements Dumpable {
         pw.println(mIsDesktopStatusBarEnabled);
         pw.print("  mShadeBounds=");
         pw.println(mShadeBounds);
+        pw.print("  mIsSidebarShowing=");
+        pw.println(mIsSidebarShowing);
     }
 
     private void onShadeOrQsExpanded(Boolean isExpanded) {
@@ -347,6 +367,9 @@ public final class ShadeTouchableRegionManager implements Dumpable {
      * Set the touchable portion of the status bar based on what elements are visible.
      */
     public void updateTouchableRegion() {
+        if (mNotificationShadeWindowView == null) {
+            return;
+        }
         final boolean shouldObserve = mIsDesktopStatusBarEnabled
                 ? shouldObserveForDesktop()
                 : shouldObserveForStandardMode();
@@ -361,6 +384,7 @@ public final class ShadeTouchableRegionManager implements Dumpable {
             mNotificationShadeWindowView.requestLayout();
         } else {
             observer.removeOnComputeInternalInsetsListener(mOnComputeInternalInsetsListener);
+            mNotificationShadeWindowView.requestLayout();
         }
         mShouldAdjustInsets = shouldObserve;
     }
@@ -386,8 +410,25 @@ public final class ShadeTouchableRegionManager implements Dumpable {
         return mHeadsUpManager.hasPinnedHeadsUp()
                 || mHeadsUpManager.isHeadsUpAnimatingAwayValue()
                 || mForceCollapsedUntilLayout
+                || mIsSidebarShowing
                 || hasCutoutInset
                 || mNotificationShadeWindowController.getForcePluginOpen();
+    }
+
+    private void onSidebarStateChanged() {
+        final boolean sidebarShowing = isSidebarShowing();
+        if (sidebarShowing == mIsSidebarShowing) {
+            return;
+        }
+        mIsSidebarShowing = sidebarShowing;
+        updateTouchableRegion();
+        if (mNotificationShadeWindowView != null) {
+            mNotificationShadeWindowView.requestLayout();
+        }
+    }
+
+    private boolean isSidebarShowing() {
+        return Settings.Global.getInt(mContext.getContentResolver(), SIDEBAR_SWITCH_STATUS, 0) == 1;
     }
 
     /**

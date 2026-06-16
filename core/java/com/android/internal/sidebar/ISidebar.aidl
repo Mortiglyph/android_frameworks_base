@@ -13,6 +13,7 @@ interface ISidebar {
     void dismissFooResultDisplay();
     void fooDisplay(in FooDisplayResultInfo info);
     Bitmap getSidebarBackground();
+    Bundle createExternalDragFile(String displayName, String mimeType);
     void handleSidebarShareList();
     Bundle noticeSidebarIconFloat(in ILauncher launcher, in Bundle bundle);
     void onEnterSidebarMode(int mode, int flags);

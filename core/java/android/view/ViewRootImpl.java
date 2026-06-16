@@ -1260,6 +1260,7 @@ public final class ViewRootImpl implements ViewParent,
     private long mFirstFramePresentedTimeNs = -1;
 
     private final boolean mSendPerfHintOnTouch;
+    private final OneStepDragController mOneStepDragController;
 
     private static boolean sToolkitSetFrameRateReadOnlyFlagValue;
     private static boolean sToolkitMetricsForFrameRateDecisionFlagValue;
@@ -1291,6 +1292,7 @@ public final class ViewRootImpl implements ViewParent,
         mContext = context;
         mWindowSession = session;
         mWindowLayout = windowLayout;
+        mOneStepDragController = new OneStepDragController(this);
         mDisplay = display;
         mBasePackageName = context.getBasePackageName();
         final String name = DisplayProperties.debug_vri_package().orElse(null);
@@ -6670,6 +6672,7 @@ public final class ViewRootImpl implements ViewParent,
     void dispatchDetachedFromWindow() {
         // Make sure we free-up insets resources if view never received onWindowFocusLost()
         // because of a die-signal
+        mOneStepDragController.onDetachedFromWindow();
         mInsetsController.onWindowFocusLost();
         mFirstInputStage.onDetachedFromWindow();
         if (mView != null && mView.mAttachInfo != null) {
@@ -8051,6 +8054,7 @@ public final class ViewRootImpl implements ViewParent,
                 if (event.getActionMasked() == MotionEvent.ACTION_UP) {
                     mLastClickToolType = event.getToolType(event.getActionIndex());
                 }
+                mOneStepDragController.onTouchEvent(event);
             }
             return FORWARD;
         }

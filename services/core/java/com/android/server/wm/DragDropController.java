@@ -66,6 +66,7 @@ import java.util.function.Consumer;
  */
 class DragDropController {
     private static final float DRAG_SHADOW_ALPHA_TRANSPARENT = .7071f;
+    private static final String ONESTEP_PACKAGE = "com.smartisanos.sidebar";
     static final long DRAG_TIMEOUT_MS = 5000;
     private static final int A11Y_DRAG_TIMEOUT_DEFAULT_MS = 60000;
 
@@ -359,8 +360,9 @@ class DragDropController {
                     return;
                 }
 
-                final boolean relinquishDragSurfaceToDropTarget =
-                        consumed && mDragState.targetInterceptsGlobalDrag(callingWin);
+                final boolean relinquishDragSurfaceToDropTarget = consumed
+                        && mDragState.targetInterceptsGlobalDrag(callingWin)
+                        && shouldRelinquishDragSurfaceToDropTarget(callingWin);
                 final boolean isCrossWindowDrag = !mDragState.mLocalWin.equals(token);
                 mDragState.endDragLocked(consumed, relinquishDragSurfaceToDropTarget);
 
@@ -460,6 +462,10 @@ class DragDropController {
      */
     boolean hasPendingUnhandledDropCallback() {
         return mHandler.hasMessages(MSG_UNHANDLED_DROP_LISTENER_TIMEOUT);
+    }
+
+    private boolean shouldRelinquishDragSurfaceToDropTarget(WindowState callingWin) {
+        return callingWin == null || !ONESTEP_PACKAGE.equals(callingWin.getOwningPackage());
     }
 
     void cancelDragAndDrop(IBinder dragToken, boolean skipAnimation) {
