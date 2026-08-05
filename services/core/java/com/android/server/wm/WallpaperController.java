@@ -933,7 +933,8 @@ class WallpaperController {
     }
 
     /**
-     * Mirrors the visible wallpaper if it's available.
+     * Mirrors the visible wallpaper if it's available, otherwise mirrors the latest drawn
+     * wallpaper client surface.
      * <p>
      * We mirror at the WallpaperWindowToken level because scale and translation is applied at
      * the WindowState level and mirroring the WindowState's SurfaceControl will remove any local
@@ -942,13 +943,35 @@ class WallpaperController {
      * @return A SurfaceControl for the parent of the mirrored wallpaper.
      */
     SurfaceControl mirrorWallpaperSurface() {
-        final WindowState wallpaperWindowState = getTopVisibleWallpaper();
-        final SurfaceControl wallpaperSurfaceControl = wallpaperWindowState != null
-            ? wallpaperWindowState.mToken.getSurfaceControl()
-            : null;
+        final SurfaceControl wallpaperSurfaceControl = getWallpaperMirrorSource();
         return wallpaperSurfaceControl != null
                 ? SurfaceControl.mirrorSurface(wallpaperSurfaceControl)
                 : null;
+    }
+
+    private SurfaceControl getWallpaperMirrorSource() {
+        final WindowState visibleWallpaper = getTopVisibleWallpaper();
+        if (visibleWallpaper != null) {
+            final SurfaceControl visibleWallpaperToken =
+                    visibleWallpaper.mToken.getSurfaceControl();
+            if (visibleWallpaperToken != null && visibleWallpaperToken.isValid()) {
+                return visibleWallpaperToken;
+            }
+        }
+
+        for (int curTokenNdx = mWallpaperTokens.size() - 1; curTokenNdx >= 0; curTokenNdx--) {
+            final WallpaperWindowToken token = mWallpaperTokens.get(curTokenNdx);
+            for (int i = token.getChildCount() - 1; i >= 0; i--) {
+                final WindowState wallpaper = token.getChildAt(i);
+                if (wallpaper.isDrawn() && wallpaper.mWinAnimator.hasSurface()) {
+                    final SurfaceControl wallpaperClient = wallpaper.getClientViewRootSurface();
+                    if (wallpaperClient != null && wallpaperClient.isValid()) {
+                        return wallpaperClient;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     WindowState getTopVisibleWallpaper() {

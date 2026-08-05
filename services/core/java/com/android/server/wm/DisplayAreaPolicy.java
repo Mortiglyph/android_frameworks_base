@@ -17,17 +17,31 @@
 package com.android.server.wm;
 
 import static android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_MAGNIFICATION_OVERLAY;
+import static android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY;
+import static android.view.WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
+import static android.view.WindowManager.LayoutParams.TYPE_BOOT_PROGRESS;
+import static android.view.WindowManager.LayoutParams.TYPE_DISPLAY_OVERLAY;
+import static android.view.WindowManager.LayoutParams.TYPE_DOCK_DIVIDER;
 import static android.view.WindowManager.LayoutParams.TYPE_INPUT_METHOD;
+import static android.view.WindowManager.LayoutParams.TYPE_INPUT_CONSUMER;
 import static android.view.WindowManager.LayoutParams.TYPE_INPUT_METHOD_DIALOG;
+import static android.view.WindowManager.LayoutParams.TYPE_KEYGUARD;
 import static android.view.WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG;
 import static android.view.WindowManager.LayoutParams.TYPE_MAGNIFICATION_OVERLAY;
 import static android.view.WindowManager.LayoutParams.TYPE_NAVIGATION_BAR;
 import static android.view.WindowManager.LayoutParams.TYPE_NAVIGATION_BAR_PANEL;
 import static android.view.WindowManager.LayoutParams.TYPE_NOTIFICATION_SHADE;
+import static android.view.WindowManager.LayoutParams.TYPE_PRESENTATION;
+import static android.view.WindowManager.LayoutParams.TYPE_PRIVATE_PRESENTATION;
+import static android.view.WindowManager.LayoutParams.TYPE_QS_DIALOG;
+import static android.view.WindowManager.LayoutParams.TYPE_SCREENSHOT;
 import static android.view.WindowManager.LayoutParams.TYPE_SECURE_SYSTEM_OVERLAY;
 import static android.view.WindowManager.LayoutParams.TYPE_STATUS_BAR;
 import static android.view.WindowManager.LayoutParams.TYPE_STATUS_BAR_SUB_PANEL;
 import static android.view.WindowManager.LayoutParams.TYPE_SYSTEM_ALERT;
+import static android.view.WindowManager.LayoutParams.TYPE_SYSTEM_DIALOG;
+import static android.view.WindowManager.LayoutParams.TYPE_VOICE_INTERACTION;
+import static android.view.WindowManager.LayoutParams.TYPE_VOICE_INTERACTION_STARTING;
 import static android.view.WindowManager.LayoutParams.TYPE_VOLUME_OVERLAY;
 import static android.view.WindowManager.LayoutParams.TYPE_WALLPAPER;
 import static android.window.DisplayAreaOrganizer.FEATURE_APP_ZOOM_OUT;
@@ -36,6 +50,7 @@ import static android.window.DisplayAreaOrganizer.FEATURE_FULLSCREEN_MAGNIFICATI
 import static android.window.DisplayAreaOrganizer.FEATURE_HIDE_DISPLAY_CUTOUT;
 import static android.window.DisplayAreaOrganizer.FEATURE_IME_PLACEHOLDER;
 import static android.window.DisplayAreaOrganizer.FEATURE_ONE_HANDED;
+import static android.window.DisplayAreaOrganizer.FEATURE_SIDEBAR_ZOOM_OUT;
 import static android.window.DisplayAreaOrganizer.FEATURE_WINDOWED_MAGNIFICATION;
 
 import static com.android.server.wm.DisplayAreaPolicyBuilder.Feature;
@@ -165,6 +180,22 @@ public abstract class DisplayAreaPolicy {
                                 .all()
                                 .except(TYPE_NAVIGATION_BAR, TYPE_NAVIGATION_BAR_PANEL,
                                         TYPE_SECURE_SYSTEM_OVERLAY)
+                                .build())
+                        .addFeature(new Feature.Builder(wmService.mPolicy, "SidebarZoomOut",
+                                FEATURE_SIDEBAR_ZOOM_OUT)
+                                .all()
+                                .except(TYPE_NAVIGATION_BAR_PANEL, TYPE_STATUS_BAR_SUB_PANEL,
+                                        TYPE_KEYGUARD, TYPE_KEYGUARD_DIALOG, TYPE_SYSTEM_ALERT,
+                                        TYPE_SYSTEM_DIALOG, TYPE_WALLPAPER, TYPE_VOLUME_OVERLAY,
+                                        TYPE_BOOT_PROGRESS, TYPE_INPUT_METHOD,
+                                        TYPE_INPUT_METHOD_DIALOG, TYPE_INPUT_CONSUMER,
+                                        TYPE_DISPLAY_OVERLAY, TYPE_MAGNIFICATION_OVERLAY,
+                                        TYPE_PRIVATE_PRESENTATION, TYPE_VOICE_INTERACTION,
+                                        TYPE_ACCESSIBILITY_OVERLAY,
+                                        TYPE_VOICE_INTERACTION_STARTING, TYPE_DOCK_DIVIDER,
+                                        TYPE_QS_DIALOG, TYPE_SCREENSHOT, TYPE_PRESENTATION,
+                                        TYPE_APPLICATION_OVERLAY,
+                                        TYPE_ACCESSIBILITY_MAGNIFICATION_OVERLAY)
                                 .build())
                         .addFeature(new Feature.Builder(wmService.mPolicy, "AppZoomOut",
                                 FEATURE_APP_ZOOM_OUT)

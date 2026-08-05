@@ -152,20 +152,6 @@ public class AppZoomOutController implements RemoteCallable<AppZoomOutController
         }
     }
 
-    private void setSidebarTransform(float scaleX, float scaleY, float offsetX, float offsetY,
-            boolean enabled) {
-        if (enabled && !registerAppDisplayAreaOrganizerIfNeeded()) {
-            return;
-        }
-        if (!mAppDisplayAreaOrganizerRegistered) {
-            return;
-        }
-        mAppDisplayAreaOrganizer.setSidebarTransform(scaleX, scaleY, offsetX, offsetY, enabled);
-        if (!enabled && !spatialModelAppPushback()) {
-            unregisterAppDisplayAreaOrganizerIfNeeded();
-        }
-    }
-
     void updateDisplayLayout(int displayId) {
         final DisplayLayout newDisplayLayout = mDisplayController.getDisplayLayout(displayId);
         if (newDisplayLayout == null) {
@@ -271,13 +257,6 @@ public class AppZoomOutController implements RemoteCallable<AppZoomOutController
         public void setTopLevelProgress(float progress, long vsyncId, Handler sysuiMainHandler) {
             mMainExecutor.execute(() -> AppZoomOutController.this.setTopLevelProgress(progress,
                     vsyncId, sysuiMainHandler));
-        }
-
-        @Override
-        public void setSidebarTransform(float scaleX, float scaleY, float offsetX, float offsetY,
-                boolean enabled) {
-            mMainExecutor.execute(() -> AppZoomOutController.this.setSidebarTransform(scaleX,
-                    scaleY, offsetX, offsetY, enabled));
         }
     }
 }

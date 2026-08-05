@@ -129,6 +129,14 @@ public class DisplayAreaOrganizer extends WindowOrganizer {
     public static final int FEATURE_APP_ZOOM_OUT = FEATURE_SYSTEM_FIRST + 10;
 
     /**
+     * Display area for rendering the OneStep sidebar zoom state. It is separate from
+     * {@link #FEATURE_APP_ZOOM_OUT} so sidebar can include system decoration layers such as
+     * taskbar/status bar without changing the platform app zoom out behavior.
+     * @hide
+     */
+    public static final int FEATURE_SIDEBAR_ZOOM_OUT = FEATURE_SYSTEM_FIRST + 11;
+
+    /**
      * The last boundary of display area for system features
      */
     public static final int FEATURE_SYSTEM_LAST = 10_000;

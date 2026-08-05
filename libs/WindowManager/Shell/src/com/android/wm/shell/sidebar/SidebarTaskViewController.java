@@ -37,8 +37,8 @@ import android.window.TransitionRequestInfo;
 import android.window.WindowContainerToken;
 import android.window.WindowContainerTransaction;
 
+import com.android.internal.policy.ScreenDecorationsUtils;
 import com.android.wm.shell.ShellTaskOrganizer;
-import com.android.wm.shell.appzoomout.AppZoomOut;
 import com.android.wm.shell.common.ExternalInterfaceBinder;
 import com.android.wm.shell.common.RemoteCallable;
 import com.android.wm.shell.common.ShellExecutor;
@@ -69,14 +69,18 @@ public final class SidebarTaskViewController implements RemoteCallable<SidebarTa
     private static final long TASK_LEASH_ANIMATION_FRAME_MS = 16L;
     private static final float SLOT_ENTER_START_SCALE = 0.92f;
     private static final float FULLSCREEN_RESTORE_START_ALPHA = 1f;
+    private static final float SLOT_TASK_SOURCE_EDGE_CROP_DP = 16f;
+    private static final float SIDEBAR_CORNER_RADIUS_RATIO = 0.1f;
+    private static final boolean ENABLE_SURFACE_CORNER_RADIUS = true;
 
     private final Context mContext;
     private final ShellTaskOrganizer mTaskOrganizer;
     private final ShellController mShellController;
     private final ShellCommandHandler mShellCommandHandler;
     private final ShellExecutor mMainExecutor;
-    private final Optional<AppZoomOut> mAppZoomOut;
+    private final Optional<SidebarZoomOut> mSidebarZoomOut;
     private final Transitions mTransitions;
+    private final float mWindowCornerRadius;
     private final SparseArray<SlotRecord> mSlots = new SparseArray<>();
     private final SparseArray<Integer> mTaskToSlot = new SparseArray<>();
     private final SparseArray<SurfaceControl> mTaskLeashes = new SparseArray<>();
@@ -103,14 +107,15 @@ public final class SidebarTaskViewController implements RemoteCallable<SidebarTa
     public SidebarTaskViewController(Context context, ShellInit shellInit,
             ShellController shellController, ShellCommandHandler shellCommandHandler,
             ShellTaskOrganizer taskOrganizer, ShellExecutor mainExecutor,
-            Optional<AppZoomOut> appZoomOut, Transitions transitions) {
+            Optional<SidebarZoomOut> sidebarZoomOut, Transitions transitions) {
         mContext = context;
         mShellController = shellController;
         mShellCommandHandler = shellCommandHandler;
         mTaskOrganizer = taskOrganizer;
         mMainExecutor = mainExecutor;
-        mAppZoomOut = appZoomOut;
+        mSidebarZoomOut = sidebarZoomOut;
         mTransitions = transitions;
+        mWindowCornerRadius = ScreenDecorationsUtils.getWindowCornerRadius(mContext);
         shellInit.addInitCallback(this::onInit, this);
     }
 
@@ -339,13 +344,13 @@ public final class SidebarTaskViewController implements RemoteCallable<SidebarTa
 
     public void setSidebarZoom(float scaleX, float scaleY, float offsetX, float offsetY,
             boolean enabled) {
-        if (mAppZoomOut.isEmpty()) {
-            Slog.w(TAG, "setSidebarZoom ignored: AppZoomOut unavailable enabled=" + enabled);
+        if (mSidebarZoomOut.isEmpty()) {
+            Slog.w(TAG, "setSidebarZoom ignored: SidebarZoomOut unavailable enabled=" + enabled);
             return;
         }
         final float safeScaleX = sanitizeScale(scaleX);
         final float safeScaleY = sanitizeScale(scaleY);
-        mAppZoomOut.get().setSidebarTransform(safeScaleX, safeScaleY, offsetX, offsetY,
+        mSidebarZoomOut.get().setSidebarTransform(safeScaleX, safeScaleY, offsetX, offsetY,
                 enabled);
         if (!mHasLoggedSidebarZoomState || mLastLoggedSidebarZoomEnabled != enabled) {
             mHasLoggedSidebarZoomState = true;
@@ -577,24 +582,29 @@ public final class SidebarTaskViewController implements RemoteCallable<SidebarTa
         final Rect taskBounds = getFullscreenBounds();
         final int taskWidth = Math.max(1, taskBounds.width());
         final int taskHeight = Math.max(1, taskBounds.height());
+        final Rect sourceCrop = getSlotTaskSourceCrop(taskWidth, taskHeight);
+        final int sourceWidth = Math.max(1, sourceCrop.width());
+        final int sourceHeight = Math.max(1, sourceCrop.height());
         final SurfaceControl.Transaction t = new SurfaceControl.Transaction();
         t.reparent(slot.mTaskLeash, slot.mSurface);
-        t.setPosition(slot.mTaskLeash, 0, 0);
         t.setLayer(slot.mTaskLeash, Integer.MAX_VALUE);
-        t.setWindowCrop(slot.mTaskLeash, taskWidth, taskHeight);
+        t.setCrop(slot.mTaskLeash, sourceCrop);
         if (animate) {
-            startTaskLeashAnimation(slot, t, width, height, taskWidth, taskHeight,
+            startTaskLeashAnimation(slot, t, width, height, sourceCrop, sourceWidth, sourceHeight,
                     true /* enteringSlot */);
         } else {
+            final float scaleX = width / (float) sourceWidth;
+            final float scaleY = height / (float) sourceHeight;
             t.setAlpha(slot.mTaskLeash, 1f);
-            t.setMatrix(slot.mTaskLeash, width / (float) taskWidth, 0f, 0f,
-                    height / (float) taskHeight);
-            t.setCornerRadius(slot.mTaskLeash, 0f);
+            t.setPosition(slot.mTaskLeash, -sourceCrop.left * scaleX, -sourceCrop.top * scaleY);
+            t.setMatrix(slot.mTaskLeash, scaleX, 0f, 0f, scaleY);
+            t.setCornerRadius(slot.mTaskLeash, ENABLE_SURFACE_CORNER_RADIUS
+                    ? getSlotCornerRadius(width, height, scaleX, scaleY) : 0f);
             t.show(slot.mTaskLeash);
             t.apply();
         }
         Slog.i(TAG, "reparentTaskLeash slot=" + slot.mSlotIndex + " taskId=" + slot.mTaskId
-                + " slotSize=" + width + "x" + height);
+                + " slotSize=" + width + "x" + height + " sourceCrop=" + sourceCrop);
     }
 
     private void scheduleReparentSlotLeash(SlotRecord slot) {
@@ -632,13 +642,14 @@ public final class SidebarTaskViewController implements RemoteCallable<SidebarTa
         t.setPosition(leash, 0, 0);
         t.setWindowCrop(leash, null);
         t.setCornerRadius(leash, 0f);
-        startTaskLeashAnimation(slot, t, 1, 1, 1, 1, false /* enteringSlot */);
+        startTaskLeashAnimation(slot, t, 1, 1, null /* sourceCrop */, 1, 1,
+                false /* enteringSlot */);
         Slog.i(TAG, "resetTaskLeash taskId=" + taskId + " slot=" + slot.mSlotIndex);
         return leash;
     }
 
     private void startTaskLeashAnimation(SlotRecord slot, SurfaceControl.Transaction startT,
-            int targetWidth, int targetHeight, int taskWidth, int taskHeight,
+            int targetWidth, int targetHeight, Rect sourceCrop, int sourceWidth, int sourceHeight,
             boolean enteringSlot) {
         final SurfaceControl leash = slot.mTaskLeash;
         if (leash == null || !leash.isValid()) {
@@ -648,27 +659,28 @@ public final class SidebarTaskViewController implements RemoteCallable<SidebarTa
         final int generation = ++slot.mAnimationGeneration;
         final int taskId = slot.mTaskId;
         slot.mAnimatingLeash = true;
-        final float targetScaleX = targetWidth / (float) Math.max(1, taskWidth);
-        final float targetScaleY = targetHeight / (float) Math.max(1, taskHeight);
+        final float targetScaleX = targetWidth / (float) Math.max(1, sourceWidth);
+        final float targetScaleY = targetHeight / (float) Math.max(1, sourceHeight);
         final float startScaleX = enteringSlot ? targetScaleX * SLOT_ENTER_START_SCALE : 1f;
         final float startScaleY = enteringSlot ? targetScaleY * SLOT_ENTER_START_SCALE : 1f;
         final float startAlpha = enteringSlot ? 0f : FULLSCREEN_RESTORE_START_ALPHA;
         startT.setAlpha(leash, startAlpha);
         setTaskLeashAnimationTransform(startT, leash, targetWidth, targetHeight,
-                taskWidth, taskHeight, startScaleX, startScaleY, enteringSlot);
+                sourceCrop, sourceWidth, sourceHeight, startScaleX, startScaleY, enteringSlot);
         startT.show(leash);
         startT.apply();
         Slog.i(TAG, "animateTaskLeash taskId=" + slot.mTaskId + " slot=" + slot.mSlotIndex
                 + " enteringSlot=" + enteringSlot);
         animateTaskLeashFrame(slot, leash, generation, taskId, targetScaleX, targetScaleY,
                 startScaleX, startScaleY, startAlpha, targetWidth, targetHeight,
-                taskWidth, taskHeight, enteringSlot, 0L);
+                sourceCrop, sourceWidth, sourceHeight, enteringSlot, 0L);
     }
 
     private void animateTaskLeashFrame(SlotRecord slot, SurfaceControl leash, int generation,
             int taskId, float targetScaleX, float targetScaleY, float startScaleX,
             float startScaleY, float startAlpha, int targetWidth, int targetHeight,
-            int taskWidth, int taskHeight, boolean enteringSlot, long elapsedMs) {
+            Rect sourceCrop, int sourceWidth, int sourceHeight, boolean enteringSlot,
+            long elapsedMs) {
         mMainExecutor.executeDelayed(() -> {
             if (leash == null || !leash.isValid()) {
                 return;
@@ -689,13 +701,13 @@ public final class SidebarTaskViewController implements RemoteCallable<SidebarTa
             final SurfaceControl.Transaction t = new SurfaceControl.Transaction();
             t.setAlpha(leash, alpha);
             setTaskLeashAnimationTransform(t, leash, targetWidth, targetHeight,
-                    taskWidth, taskHeight, scaleX, scaleY, enteringSlot);
+                    sourceCrop, sourceWidth, sourceHeight, scaleX, scaleY, enteringSlot);
             t.show(leash);
             t.apply();
             if (rawProgress < 1f) {
                 animateTaskLeashFrame(slot, leash, generation, taskId, targetScaleX, targetScaleY,
                         startScaleX, startScaleY, startAlpha, targetWidth, targetHeight,
-                        taskWidth, taskHeight, enteringSlot,
+                        sourceCrop, sourceWidth, sourceHeight, enteringSlot,
                         elapsedMs + TASK_LEASH_ANIMATION_FRAME_MS);
             } else {
                 slot.mAnimatingLeash = false;
@@ -704,19 +716,42 @@ public final class SidebarTaskViewController implements RemoteCallable<SidebarTa
     }
 
     private void setTaskLeashAnimationTransform(SurfaceControl.Transaction t, SurfaceControl leash,
-            int targetWidth, int targetHeight, int taskWidth, int taskHeight,
+            int targetWidth, int targetHeight, Rect sourceCrop, int sourceWidth, int sourceHeight,
             float scaleX, float scaleY, boolean enteringSlot) {
         if (enteringSlot) {
-            final float offsetX = (targetWidth - (taskWidth * scaleX)) / 2f;
-            final float offsetY = (targetHeight - (taskHeight * scaleY)) / 2f;
+            final int cropLeft = sourceCrop != null ? sourceCrop.left : 0;
+            final int cropTop = sourceCrop != null ? sourceCrop.top : 0;
+            final float offsetX = ((targetWidth - (sourceWidth * scaleX)) / 2f)
+                    - (cropLeft * scaleX);
+            final float offsetY = ((targetHeight - (sourceHeight * scaleY)) / 2f)
+                    - (cropTop * scaleY);
             t.setPosition(leash, offsetX, offsetY);
         } else {
             t.setPosition(leash, 0f, 0f);
         }
         t.setMatrix(leash, scaleX, 0f, 0f, scaleY);
-        // Smooth visual corners are provided by Sidebar's trusted wallpaper overlay. Do not apply a
-        // SurfaceControl circular corner here, because it clips pixels the overlay expects to mask.
-        t.setCornerRadius(leash, 0f);
+        t.setCornerRadius(leash, ENABLE_SURFACE_CORNER_RADIUS && enteringSlot
+                ? getSlotCornerRadius(targetWidth, targetHeight, scaleX, scaleY) : 0f);
+    }
+
+    private float getSlotCornerRadius(int targetWidth, int targetHeight,
+            float scaleX, float scaleY) {
+        final float safeScale = Math.max(0.0001f,
+                Math.min(Math.abs(scaleX), Math.abs(scaleY)));
+        final float visibleRadius = Math.min(targetWidth, targetHeight)
+                * SIDEBAR_CORNER_RADIUS_RATIO;
+        return Math.max(mWindowCornerRadius, visibleRadius) / safeScale;
+    }
+
+    private Rect getSlotTaskSourceCrop(int taskWidth, int taskHeight) {
+        final int requestedInset = Math.round(
+                SLOT_TASK_SOURCE_EDGE_CROP_DP * mContext.getResources().getDisplayMetrics().density);
+        final int maxInset = (Math.min(taskWidth, taskHeight) - 1) / 4;
+        final int inset = Math.max(0, Math.min(requestedInset, maxInset));
+        if (inset <= 0) {
+            return new Rect(0, 0, taskWidth, taskHeight);
+        }
+        return new Rect(inset, inset, taskWidth - inset, taskHeight - inset);
     }
 
     private SurfaceControl getTaskLeash(SlotRecord slot, int taskId) {

@@ -44,11 +44,4 @@ public interface AppZoomOut {
      * @param sysuiMainHandler The main handler from SystemUI (required for CUJ tracking)
      */
     void setTopLevelProgress(float progress, long vsyncId, Handler sysuiMainHandler);
-
-    /**
-     * Applies a direct scale/translation transform for the OneStep sidebar zoom state.
-     */
-    void setSidebarTransform(float scaleX, float scaleY, float offsetX, float offsetY,
-            boolean enabled);
-
 }

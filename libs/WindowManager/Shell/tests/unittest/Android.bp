@@ -105,3 +105,10 @@ test_module_config {
     test_suites: ["device-tests"],
     include_filters: ["com.android.wm.shell.back"],
 }
+
+test_module_config {
+    name: "WMShellUnitTests_sidebar",
+    base: "WMShellUnitTests",
+    test_suites: ["device-tests"],
+    include_filters: ["com.android.wm.shell.sidebar"],
+}

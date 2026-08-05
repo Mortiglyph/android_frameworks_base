@@ -125,6 +125,8 @@ import com.android.wm.shell.shared.desktopmode.DesktopConfig;
 import com.android.wm.shell.shared.desktopmode.DesktopConfigImpl;
 import com.android.wm.shell.shared.desktopmode.DesktopState;
 import com.android.wm.shell.shared.desktopmode.DesktopStateImpl;
+import com.android.wm.shell.sidebar.SidebarZoomOut;
+import com.android.wm.shell.sidebar.SidebarZoomOutController;
 import com.android.wm.shell.sidebar.SidebarTaskViewController;
 import com.android.wm.shell.splitscreen.SplitScreen;
 import com.android.wm.shell.splitscreen.SplitScreenController;
@@ -859,10 +861,11 @@ public abstract class WMShellBaseModule {
             ShellCommandHandler shellCommandHandler,
             ShellTaskOrganizer shellTaskOrganizer,
             @ShellMainThread ShellExecutor mainExecutor,
-            Optional<AppZoomOut> appZoomOut,
+            Optional<SidebarZoomOut> sidebarZoomOut,
             Transitions transitions) {
         return new SidebarTaskViewController(context, shellInit, shellController,
-                shellCommandHandler, shellTaskOrganizer, mainExecutor, appZoomOut, transitions);
+                shellCommandHandler, shellTaskOrganizer, mainExecutor, sidebarZoomOut,
+                transitions);
     }
 
     // Workaround for dynamic overriding with a default implementation, see {@link DynamicOverride}
@@ -1141,6 +1144,20 @@ public abstract class WMShellBaseModule {
 
     @BindsOptionalOf
     abstract AppZoomOutController optionalAppZoomOutController();
+
+    //
+    // OneStep sidebar zoom out (optional feature)
+    //
+
+    @WMSingleton
+    @Provides
+    static Optional<SidebarZoomOut> provideSidebarZoomOut(
+            Optional<SidebarZoomOutController> sidebarZoomOutController) {
+        return sidebarZoomOutController.map((controller) -> controller.asSidebarZoomOut());
+    }
+
+    @BindsOptionalOf
+    abstract SidebarZoomOutController optionalSidebarZoomOutController();
 
     //
     // Task Stack

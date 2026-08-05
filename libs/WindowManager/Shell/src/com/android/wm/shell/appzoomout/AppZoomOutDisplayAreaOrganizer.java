@@ -106,32 +106,6 @@ public class AppZoomOutDisplayAreaOrganizer extends DisplayAreaOrganizer {
         apply();
     }
 
-    void setSidebarTransform(float scaleX, float scaleY, float offsetX, float offsetY,
-            boolean enabled) {
-        final SurfaceControl.Transaction tx = new SurfaceControl.Transaction();
-        mDisplayAreaTokenMap.forEach((token, leash) -> {
-            if (enabled) {
-                // OneStep paints smooth rounded corners in its trusted overlay. A SurfaceControl
-                // circular radius would clip extra pixels first and leave black under the overlay.
-                tx
-                        .setCrop(leash, 0, 0, mDisplayLayout.width(), mDisplayLayout.height())
-                        .setScale(leash, scaleX, scaleY)
-                        .setPosition(leash, offsetX, offsetY)
-                        .unsetColor(leash)
-                        .setOpaque(leash, false)
-                        .setCornerRadius(leash, 0f);
-            } else {
-                tx
-                        .setCrop(leash, null)
-                        .setScale(leash, 1, 1)
-                        .setPosition(leash, 0, 0)
-                        .setOpaque(leash, true)
-                        .setCornerRadius(leash, 0);
-            }
-        });
-        tx.apply();
-    }
-
     private void apply() {
         if (mIsHomeTaskFocused == null || mProgress == INVALID_PROGRESS) {
             return;

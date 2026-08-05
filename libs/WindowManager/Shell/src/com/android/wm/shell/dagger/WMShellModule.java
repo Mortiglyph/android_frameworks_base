@@ -186,6 +186,7 @@ import com.android.wm.shell.shared.annotations.ShellDesktopThread;
 import com.android.wm.shell.shared.annotations.ShellMainThread;
 import com.android.wm.shell.shared.desktopmode.DesktopConfig;
 import com.android.wm.shell.shared.desktopmode.DesktopState;
+import com.android.wm.shell.sidebar.SidebarZoomOutController;
 import com.android.wm.shell.splitscreen.SplitScreenController;
 import com.android.wm.shell.sysui.ShellCommandHandler;
 import com.android.wm.shell.sysui.ShellController;
@@ -2029,6 +2030,22 @@ public abstract class WMShellModule {
             InteractionJankMonitor interactionJankMonitor) {
         return AppZoomOutController.create(context, shellInit, shellTaskOrganizer,
                 displayController, displayLayout, mainExecutor, interactionJankMonitor);
+    }
+
+    //
+    // OneStep sidebar zoom out
+    //
+
+    @WMSingleton
+    @Provides
+    static SidebarZoomOutController provideSidebarZoomOutController(
+            Context context,
+            ShellInit shellInit,
+            DisplayController displayController,
+            DisplayLayout displayLayout,
+            @ShellMainThread ShellExecutor mainExecutor) {
+        return SidebarZoomOutController.create(context, shellInit, displayController,
+                displayLayout, mainExecutor);
     }
 
     //
