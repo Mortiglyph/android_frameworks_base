@@ -24,6 +24,7 @@ import android.content.Context
 import android.graphics.Insets
 import android.graphics.Region
 import android.hardware.display.DisplayManagerGlobal
+import android.provider.Settings
 import android.platform.test.annotations.DisableFlags
 import android.platform.test.annotations.EnableFlags
 import android.platform.test.flag.junit.FlagsParameterization
@@ -35,6 +36,7 @@ import android.view.InputDevice
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewRootImpl
 import android.view.ViewTreeObserver
 import android.widget.FrameLayout
@@ -77,10 +79,12 @@ import com.android.systemui.testKosmos
 import com.android.systemui.unfold.util.ScopedUnfoldTransitionProgressProvider
 import com.android.systemui.user.ui.viewmodel.StatusBarUserChipViewModel
 import com.android.systemui.util.view.ViewUtil
+import com.android.internal.sidebar.SidebarZoomState
 import com.google.common.truth.Truth.assertThat
 import java.util.Optional
 import java.util.function.BooleanSupplier
 import org.junit.Assume
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -136,6 +140,26 @@ class PhoneStatusBarViewControllerTest(flags: FlagsParameterization) : SysuiTest
     private lateinit var controller: PhoneStatusBarViewController
 
     private lateinit var viewForSecondaryDisplay: PhoneStatusBarView
+
+    @After
+    fun tearDownSidebarSettings() {
+        Settings.Global.putString(mContext.contentResolver, SIDEBAR_ENABLED, null)
+        Settings.Global.putString(mContext.contentResolver, SidebarZoomState.SIDEBAR_ZOOM_TYPE, null)
+        Settings.Global.putString(mContext.contentResolver, SidebarZoomState.SIDEBAR_ZOOM_SCALE_X, null)
+        Settings.Global.putString(mContext.contentResolver, SidebarZoomState.SIDEBAR_ZOOM_SCALE_Y, null)
+        Settings.Global.putString(mContext.contentResolver, SidebarZoomState.SIDEBAR_ZOOM_OFFSET_X, null)
+        Settings.Global.putString(mContext.contentResolver, SidebarZoomState.SIDEBAR_ZOOM_OFFSET_Y, null)
+        Settings.Global.putString(
+            mContext.contentResolver,
+            SidebarZoomState.SIDEBAR_ZOOM_DISPLAY_WIDTH,
+            null,
+        )
+        Settings.Global.putString(
+            mContext.contentResolver,
+            SidebarZoomState.SIDEBAR_ZOOM_DISPLAY_HEIGHT,
+            null,
+        )
+    }
 
     private val clockView: Clock
         get() = view.requireViewById(R.id.clock)
@@ -417,6 +441,219 @@ class PhoneStatusBarViewControllerTest(flags: FlagsParameterization) : SysuiTest
         val returnVal = view.onInterceptTouchEvent(event)
 
         assertThat(returnVal).isTrue()
+    }
+
+    @Test
+    @DisableSceneContainer
+    fun topRightSidebarGesture_cancelsPendingShadeExpansion() {
+        enableSidebar()
+        whenever(centralSurfacesImpl.commandQueuePanelsEnabled).thenReturn(true)
+        whenever(shadeViewController.isViewEnabled).thenReturn(true)
+        val metrics = mContext.resources.displayMetrics
+        val hotSize = oneFingerHotSizePx(metrics.xdpi, metrics.densityDpi)
+        Assume.assumeTrue(metrics.widthPixels > hotSize + 100)
+
+        val downEvent =
+            MotionEvent.obtain(
+                0L,
+                0L,
+                MotionEvent.ACTION_DOWN,
+                metrics.widthPixels - hotSize / 2f,
+                hotSize / 2f,
+                0,
+            )
+        view.onTouchEvent(downEvent)
+
+        val moveEvent =
+            MotionEvent.obtain(
+                0L,
+                16L,
+                MotionEvent.ACTION_MOVE,
+                downEvent.x - 100f,
+                downEvent.y + 100f,
+                0,
+            )
+        view.onTouchEvent(moveEvent)
+
+        verify(shadeControllerImpl).cancelExpansionAndCollapseShade()
+        verify(shadeViewController, never()).handleExternalTouch(moveEvent)
+    }
+
+    @Test
+    @DisableSceneContainer
+    fun diagonalSwipeOutsideOneFingerHotRegion_isHandledByShade() {
+        enableSidebar()
+        whenever(centralSurfacesImpl.commandQueuePanelsEnabled).thenReturn(true)
+        whenever(shadeViewController.isViewEnabled).thenReturn(true)
+        val metrics = mContext.resources.displayMetrics
+        val hotSize = oneFingerHotSizePx(metrics.xdpi, metrics.densityDpi)
+        val distanceFromRight = hotSize + 20f
+        Assume.assumeTrue(metrics.widthPixels > distanceFromRight + 100f)
+        Assume.assumeTrue(distanceFromRight < metrics.widthPixels * 0.30f)
+
+        val downEvent =
+            MotionEvent.obtain(
+                0L,
+                0L,
+                MotionEvent.ACTION_DOWN,
+                metrics.widthPixels - distanceFromRight,
+                hotSize / 2f,
+                0,
+            )
+        view.onTouchEvent(downEvent)
+
+        val moveEvent =
+            MotionEvent.obtain(
+                0L,
+                16L,
+                MotionEvent.ACTION_MOVE,
+                downEvent.x - 100f,
+                downEvent.y + 100f,
+                0,
+            )
+        view.onTouchEvent(moveEvent)
+
+        verify(shadeControllerImpl, never()).cancelExpansionAndCollapseShade()
+        verify(shadeViewController).handleExternalTouch(moveEvent)
+    }
+
+    @Test
+    @DisableSceneContainer
+    fun topRightSidebarGesture_usesZoomVisibleFrameWhenSidebarIsOpen() {
+        enableSidebar()
+        whenever(centralSurfacesImpl.commandQueuePanelsEnabled).thenReturn(true)
+        whenever(shadeViewController.isViewEnabled).thenReturn(true)
+        val metrics = mContext.resources.displayMetrics
+        val hotSize = oneFingerHotSizePx(metrics.xdpi, metrics.densityDpi)
+        val zoomOffsetX = 100f
+        val zoomOffsetY = 240f
+        val zoomScaleX = 0.55f
+        val zoomScaleY = 0.65f
+        val visibleRight = zoomOffsetX + metrics.widthPixels * zoomScaleX
+        Assume.assumeTrue(metrics.widthPixels > hotSize + 100)
+        Assume.assumeTrue(visibleRight + hotSize < metrics.widthPixels)
+
+        SidebarZoomState.write(
+            mContext.contentResolver,
+            SIDEBAR_MODE_RIGHT,
+            zoomScaleX,
+            zoomScaleY,
+            zoomOffsetX,
+            zoomOffsetY,
+            metrics.widthPixels,
+            metrics.heightPixels,
+        )
+
+        val downEvent =
+            MotionEvent.obtain(
+                0L,
+                0L,
+                MotionEvent.ACTION_DOWN,
+                visibleRight - hotSize / 2f,
+                zoomOffsetY + hotSize / 2f,
+                0,
+            )
+        view.onTouchEvent(downEvent)
+
+        val moveEvent =
+            MotionEvent.obtain(
+                0L,
+                16L,
+                MotionEvent.ACTION_MOVE,
+                downEvent.x - 100f,
+                downEvent.y + 100f,
+                0,
+            )
+        view.onTouchEvent(moveEvent)
+
+        verify(shadeControllerImpl).cancelExpansionAndCollapseShade()
+        verify(shadeViewController, never()).handleExternalTouch(moveEvent)
+    }
+
+    @Test
+    @EnableSceneContainer
+    fun topRightSidebarGesture_interceptDefersShadeUntilGestureIsClassified() {
+        enableSidebar()
+        val metrics = mContext.resources.displayMetrics
+        val hotSize = oneFingerHotSizePx(metrics.xdpi, metrics.densityDpi)
+        val touchSlop = ViewConfiguration.get(mContext).scaledTouchSlop
+        Assume.assumeTrue(metrics.widthPixels > hotSize + 100)
+
+        val downEvent =
+            MotionEvent.obtain(
+                0L,
+                0L,
+                MotionEvent.ACTION_DOWN,
+                metrics.widthPixels - hotSize / 2f,
+                hotSize / 2f,
+                0,
+            )
+        assertThat(view.onInterceptTouchEvent(downEvent)).isFalse()
+
+        val earlyMoveEvent =
+            MotionEvent.obtain(
+                0L,
+                16L,
+                MotionEvent.ACTION_MOVE,
+                downEvent.x - touchSlop,
+                downEvent.y + touchSlop + 1f,
+                0,
+            )
+        assertThat(view.onInterceptTouchEvent(earlyMoveEvent)).isFalse()
+        verify(windowRootView, never()).dispatchTouchEvent(any())
+
+        val diagonalMoveEvent =
+            MotionEvent.obtain(
+                0L,
+                32L,
+                MotionEvent.ACTION_MOVE,
+                downEvent.x - 100f,
+                downEvent.y + 100f,
+                0,
+            )
+        assertThat(view.onInterceptTouchEvent(diagonalMoveEvent)).isFalse()
+
+        verify(shadeControllerImpl).cancelExpansionAndCollapseShade()
+        verify(windowRootView, never()).dispatchTouchEvent(any())
+    }
+
+    @Test
+    @EnableSceneContainer
+    fun topRightVerticalPull_interceptReplaysCachedEventsToShade() {
+        enableSidebar()
+        val metrics = mContext.resources.displayMetrics
+        val hotSize = oneFingerHotSizePx(metrics.xdpi, metrics.densityDpi)
+        val touchSlop = ViewConfiguration.get(mContext).scaledTouchSlop
+        Assume.assumeTrue(metrics.widthPixels > hotSize + 100)
+
+        val downEvent =
+            MotionEvent.obtain(
+                0L,
+                0L,
+                MotionEvent.ACTION_DOWN,
+                metrics.widthPixels - hotSize / 2f,
+                hotSize / 2f,
+                0,
+            )
+        assertThat(view.onInterceptTouchEvent(downEvent)).isFalse()
+
+        val moveEvent =
+            MotionEvent.obtain(
+                0L,
+                16L,
+                MotionEvent.ACTION_MOVE,
+                downEvent.x,
+                downEvent.y + touchSlop * 4f,
+                0,
+            )
+        assertThat(view.onInterceptTouchEvent(moveEvent)).isTrue()
+
+        val captor = argumentCaptor<MotionEvent>()
+        verify(windowRootView, times(2)).dispatchTouchEvent(captor.capture())
+        val capturedEvents = captor.allValues
+        assertThat(capturedEvents[0].action).isEqualTo(MotionEvent.ACTION_DOWN)
+        assertThat(capturedEvents[1]).isSameInstanceAs(moveEvent)
+        verify(shadeControllerImpl, never()).cancelExpansionAndCollapseShade()
     }
 
     @Test
@@ -894,6 +1131,23 @@ class PhoneStatusBarViewControllerTest(flags: FlagsParameterization) : SysuiTest
         whenever(view.isAttachedToWindow).thenReturn(true)
     }
 
+    private fun enableSidebar() {
+        Settings.Global.putInt(mContext.contentResolver, SIDEBAR_ENABLED, 1)
+    }
+
+    private fun oneFingerHotSizePx(dpi: Float, fallbackDpi: Int): Int {
+        val resolvedDpi =
+            if (dpi > 0f && !dpi.isNaN() && !dpi.isInfinite()) {
+                dpi
+            } else {
+                fallbackDpi.toFloat().coerceAtLeast(1f)
+            }
+        return kotlin.math
+            .round(TOP_RIGHT_SIDEBAR_HOT_SIZE_MM * resolvedDpi / MM_PER_INCH)
+            .toInt()
+            .coerceAtLeast(1)
+    }
+
     private fun createAndInitController(view: PhoneStatusBarView): PhoneStatusBarViewController {
         return PhoneStatusBarViewController.Factory(
                 Optional.of(progressProvider),
@@ -929,6 +1183,10 @@ class PhoneStatusBarViewControllerTest(flags: FlagsParameterization) : SysuiTest
 
         const val DISPLAY_ID = 0
         const val SECONDARY_DISPLAY_ID = 2
+        const val SIDEBAR_ENABLED = "side_bar_mode"
+        const val SIDEBAR_MODE_RIGHT = 2
+        const val TOP_RIGHT_SIDEBAR_HOT_SIZE_MM = 10f
+        const val MM_PER_INCH = 25.4f
         val TOUCHABLE_REGION = Region(0, 0, 500, 500)
     }
 }

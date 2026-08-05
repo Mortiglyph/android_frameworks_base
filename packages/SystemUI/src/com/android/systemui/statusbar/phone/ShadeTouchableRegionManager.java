@@ -48,6 +48,7 @@ import com.android.systemui.res.R;
 import com.android.systemui.scene.domain.interactor.SceneInteractor;
 import com.android.systemui.scene.shared.flag.SceneContainerFlag;
 import com.android.systemui.scene.shared.model.Scenes;
+import com.android.systemui.shade.ShadeController;
 import com.android.systemui.shade.ShadeOverlayBoundsListener;
 import com.android.systemui.shade.domain.interactor.ShadeInteractor;
 import com.android.systemui.shade.domain.interactor.ShadeModeInteractor;
@@ -80,6 +81,7 @@ public final class ShadeTouchableRegionManager implements Dumpable {
     private final Context mContext;
     private final HeadsUpManager mHeadsUpManager;
     private final NotificationShadeWindowController mNotificationShadeWindowController;
+    private final ShadeController mShadeController;
     private final UnlockedScreenOffAnimationController mUnlockedScreenOffAnimationController;
     private final ShadeInteractor mShadeInteractor;
     private final PrimaryBouncerInteractor mPrimaryBouncerInteractor;
@@ -116,6 +118,7 @@ public final class ShadeTouchableRegionManager implements Dumpable {
             NotificationShadeWindowController notificationShadeWindowController,
             ConfigurationController configurationController,
             HeadsUpManager headsUpManager,
+            ShadeController shadeController,
             ShadeInteractor shadeInteractor,
             Provider<SceneInteractor> sceneInteractor,
             JavaAdapter javaAdapter,
@@ -143,6 +146,7 @@ public final class ShadeTouchableRegionManager implements Dumpable {
         });
 
         mHeadsUpManager = headsUpManager;
+        mShadeController = shadeController;
         mHeadsUpManager.addListener(
                 new OnHeadsUpChangedListener() {
                     @Override
@@ -421,6 +425,9 @@ public final class ShadeTouchableRegionManager implements Dumpable {
             return;
         }
         mIsSidebarShowing = sidebarShowing;
+        if (mIsSidebarShowing) {
+            mShadeController.cancelExpansionAndCollapseShade();
+        }
         updateTouchableRegion();
         if (mNotificationShadeWindowView != null) {
             mNotificationShadeWindowView.requestLayout();

@@ -600,6 +600,7 @@ public class DisplayPolicy {
                     }
                     try {
                         sidebar.enterRightSidebar(1);
+                        collapseStatusBarPanels();
                     } catch (RemoteException e) {
                         Slog.w(TAG, "Failed to notify sidebar top-right gesture", e);
                     }
@@ -1366,6 +1367,13 @@ public class DisplayPolicy {
             }
             return ifp.getFlags();
         };
+    }
+
+    private void collapseStatusBarPanels() {
+        final StatusBarManagerInternal statusBar = getStatusBarManagerInternal();
+        if (statusBar != null) {
+            statusBar.collapsePanels();
+        }
     }
 
     /**

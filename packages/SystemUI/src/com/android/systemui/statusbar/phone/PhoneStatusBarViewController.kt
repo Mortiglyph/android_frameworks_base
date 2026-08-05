@@ -16,6 +16,7 @@
 package com.android.systemui.statusbar.phone
 
 import android.app.StatusBarManager.WINDOW_STATUS_BAR
+import android.graphics.Rect
 import android.provider.Settings
 import android.util.Log
 import android.view.Display.DEFAULT_DISPLAY
@@ -55,6 +56,7 @@ import com.android.systemui.user.ui.viewmodel.StatusBarUserChipViewModel
 import com.android.systemui.util.ViewController
 import com.android.systemui.util.kotlin.getOrNull
 import com.android.systemui.util.view.ViewUtil
+import com.android.internal.sidebar.SidebarZoomState
 import dagger.Lazy
 import java.util.Optional
 import javax.inject.Inject
@@ -63,8 +65,18 @@ import javax.inject.Provider
 
 private const val TAG = "PhoneStatusBarViewController"
 private const val SIDEBAR_ENABLED = "side_bar_mode"
-private const val SIDEBAR_TOP_RIGHT_GESTURE_HOT_WIDTH_RATIO = 0.30f
-private const val SIDEBAR_TOP_RIGHT_GESTURE_HOT_HEIGHT_RATIO = 0.36f
+private const val SIDEBAR_TOP_RIGHT_GESTURE_HOT_SIZE_MM = 10f
+private const val MM_PER_INCH = 25.4f
+private const val SIDEBAR_TOP_RIGHT_GESTURE_MIN_HORIZONTAL_RATIO = 0.75f
+private const val SIDEBAR_TOP_RIGHT_GESTURE_MAX_HORIZONTAL_RATIO = 5.0f
+private const val SIDEBAR_TOP_RIGHT_SHADE_MIN_VERTICAL_TOUCH_SLOP_MULTIPLIER = 3f
+private const val SIDEBAR_TOP_RIGHT_SHADE_MAX_HORIZONTAL_RATIO = 0.35f
+
+private enum class SidebarTopRightGestureState {
+    NONE,
+    DEFER,
+    IGNORE,
+}
 
 /** Controller for [PhoneStatusBarView]. */
 class PhoneStatusBarViewController
@@ -332,29 +344,34 @@ private constructor(
         private val touchSlop = ViewConfiguration.get(mView.context).scaledTouchSlop
         private var initialTouchX = 0f
         private var initialTouchY = 0f
+        private var initialTouchRawX = 0f
+        private var initialTouchRawY = 0f
         private var isIntercepting = false
+        private var isSidebarTopRightGestureCandidate = false
         private var isIgnoringSidebarTopRightGesture = false
+        private var isSidebarTopRightGestureReleasedToShade = false
+        private var shouldReplaySidebarTopRightGestureEvents = false
         private val cachedEvents = mutableListOf<MotionEvent>()
+        private val sidebarZoomVisibleFrame = Rect()
 
         override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
-            if (event.action == MotionEvent.ACTION_DOWN) {
-                isIgnoringSidebarTopRightGesture = isSidebarTopRightGestureRegion(event)
-                if (isIgnoringSidebarTopRightGesture) {
-                    clearCachedEvents()
-                    isIntercepting = false
+            when (updateSidebarTopRightGestureState(event)) {
+                SidebarTopRightGestureState.IGNORE -> {
                     return false
                 }
-                dispatchEventToShadeDisplayPolicy(event)
-            }
-            if (isIgnoringSidebarTopRightGesture) {
-                if (isUpOrCancel(event)) {
-                    isIgnoringSidebarTopRightGesture = false
+                SidebarTopRightGestureState.DEFER -> {
+                    cacheEvent(event)
+                    return false
                 }
-                return false
+                SidebarTopRightGestureState.NONE -> Unit
+            }
+            if (event.action == MotionEvent.ACTION_DOWN) {
+                dispatchEventToShadeDisplayPolicy(event)
             }
 
             // Let ShadeViewController intercept touch events when flexiglass is disabled.
             if (!SceneContainerFlag.isEnabled) {
+                dispatchCachedInterceptEventsToShade()
                 return shadeViewController.handleExternalInterceptTouch(event)
             }
 
@@ -380,6 +397,7 @@ private constructor(
                 MotionEvent.ACTION_CANCEL -> {
                     clearCachedEvents()
                     isIntercepting = false
+                    resetSidebarTopRightGestureState()
                 }
             }
 
@@ -391,19 +409,21 @@ private constructor(
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             onTouch(event)
-            if (event.action == MotionEvent.ACTION_DOWN) {
-                isIgnoringSidebarTopRightGesture = isSidebarTopRightGestureRegion(event)
-            }
-            if (isIgnoringSidebarTopRightGesture) {
-                if (isUpOrCancel(event)) {
-                    isIgnoringSidebarTopRightGesture = false
+            when (updateSidebarTopRightGestureState(event)) {
+                SidebarTopRightGestureState.IGNORE -> {
+                    return true
                 }
-                return true
+                SidebarTopRightGestureState.DEFER -> {
+                    cacheEvent(event)
+                    return true
+                }
+                SidebarTopRightGestureState.NONE -> Unit
             }
 
             // If panels aren't enabled, ignore the gesture and don't pass it down to the
             // panel view.
             if (!centralSurfaces.commandQueuePanelsEnabled) {
+                clearCachedEvents()
                 if (event.action == MotionEvent.ACTION_DOWN) {
                     Log.v(
                         TAG,
@@ -419,6 +439,9 @@ private constructor(
             // If scene framework is enabled, route the touch to it and
             // ignore the rest of the gesture.
             if (SceneContainerFlag.isEnabled) {
+                if (shouldReplaySidebarTopRightGestureEvents) {
+                    dispatchCachedEvents()
+                }
                 windowRootView.get().dispatchTouchEvent(event)
                 return true
             }
@@ -427,6 +450,7 @@ private constructor(
                 // If the view that would receive the touch is disabled, just have status
                 // bar eat the gesture.
                 if (!shadeViewController.isViewEnabled) {
+                    clearCachedEvents()
                     shadeLogger.logMotionEvent(
                         event,
                         "onTouchForwardedFromStatusBar: panel view disabled",
@@ -435,15 +459,29 @@ private constructor(
                 }
                 if (panelExpansionInteractor.isFullyCollapsed && event.y < 1f) {
                     // b/235889526 Eat events on the top edge of the phone when collapsed
+                    clearCachedEvents()
                     shadeLogger.logMotionEvent(event, "top edge touch ignored")
                     return true
                 }
             }
 
+            if (shouldReplaySidebarTopRightGestureEvents) {
+                dispatchCachedEventsToShade()
+            }
             return shadeViewController.handleExternalTouch(event)
         }
 
         private fun cacheEvent(event: MotionEvent) {
+            val lastEvent = cachedEvents.lastOrNull()
+            if (
+                lastEvent != null &&
+                    lastEvent.actionMasked == event.actionMasked &&
+                    lastEvent.eventTime == event.eventTime &&
+                    lastEvent.x == event.x &&
+                    lastEvent.y == event.y
+            ) {
+                return
+            }
             cachedEvents.add(MotionEvent.obtain(event))
         }
 
@@ -452,14 +490,91 @@ private constructor(
             clearCachedEvents()
         }
 
+        private fun dispatchCachedInterceptEventsToShade() {
+            if (shouldReplaySidebarTopRightGestureEvents) {
+                cachedEvents.forEach { shadeViewController.handleExternalInterceptTouch(it) }
+                clearCachedEvents()
+            }
+        }
+
+        private fun dispatchCachedEventsToShade() {
+            cachedEvents.forEach { shadeViewController.handleExternalTouch(it) }
+            clearCachedEvents()
+        }
+
         private fun clearCachedEvents() {
             cachedEvents.forEach { it.recycle() }
             cachedEvents.clear()
+            shouldReplaySidebarTopRightGestureEvents = false
         }
 
-        private fun isUpOrCancel(event: MotionEvent): Boolean {
-            return event.action == MotionEvent.ACTION_UP ||
-                event.action == MotionEvent.ACTION_CANCEL
+        private fun updateSidebarTopRightGestureState(event: MotionEvent): SidebarTopRightGestureState {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    clearCachedEvents()
+                    isIntercepting = false
+                    isSidebarTopRightGestureCandidate = isSidebarTopRightGestureRegion(event)
+                    isIgnoringSidebarTopRightGesture = false
+                    isSidebarTopRightGestureReleasedToShade = false
+                    shouldReplaySidebarTopRightGestureEvents = false
+                    initialTouchRawX = event.rawX
+                    initialTouchRawY = event.rawY
+                    initialTouchX = event.x
+                    initialTouchY = event.y
+                    if (isSidebarTopRightGestureCandidate) {
+                        return SidebarTopRightGestureState.DEFER
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (
+                        isSidebarTopRightGestureCandidate &&
+                            !isIgnoringSidebarTopRightGesture &&
+                            !isSidebarTopRightGestureReleasedToShade &&
+                            isSidebarTopRightDiagonalGesture(event)
+                    ) {
+                        isIgnoringSidebarTopRightGesture = true
+                        clearCachedEvents()
+                        isIntercepting = false
+                        shadeController.cancelExpansionAndCollapseShade()
+                        return SidebarTopRightGestureState.IGNORE
+                    }
+                    if (
+                        isSidebarTopRightGestureCandidate &&
+                            !isIgnoringSidebarTopRightGesture &&
+                            !isSidebarTopRightGestureReleasedToShade
+                    ) {
+                        if (isSidebarTopRightShadeGesture(event)) {
+                            isSidebarTopRightGestureReleasedToShade = true
+                            shouldReplaySidebarTopRightGestureEvents = true
+                        } else {
+                            return SidebarTopRightGestureState.DEFER
+                        }
+                    }
+                }
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    val wasIgnoring = isIgnoringSidebarTopRightGesture
+                    val wasPending =
+                        isSidebarTopRightGestureCandidate && !isSidebarTopRightGestureReleasedToShade
+                    resetSidebarTopRightGestureState()
+                    if (wasIgnoring || wasPending) {
+                        clearCachedEvents()
+                        return SidebarTopRightGestureState.IGNORE
+                    }
+                }
+            }
+            return if (isIgnoringSidebarTopRightGesture) {
+                SidebarTopRightGestureState.IGNORE
+            } else {
+                SidebarTopRightGestureState.NONE
+            }
+        }
+
+        private fun resetSidebarTopRightGestureState() {
+            isSidebarTopRightGestureCandidate = false
+            isIgnoringSidebarTopRightGesture = false
+            isSidebarTopRightGestureReleasedToShade = false
+            shouldReplaySidebarTopRightGestureEvents = false
         }
 
         private fun isSidebarTopRightGestureRegion(event: MotionEvent): Boolean {
@@ -470,10 +585,50 @@ private constructor(
             if (displayMetrics.widthPixels <= 0 || displayMetrics.heightPixels <= 0) {
                 return false
             }
-            val hotWidth = displayMetrics.widthPixels * SIDEBAR_TOP_RIGHT_GESTURE_HOT_WIDTH_RATIO
-            val hotHeight =
-                displayMetrics.heightPixels * SIDEBAR_TOP_RIGHT_GESTURE_HOT_HEIGHT_RATIO
+            val hotWidth = mmToPx(SIDEBAR_TOP_RIGHT_GESTURE_HOT_SIZE_MM, displayMetrics.xdpi)
+            val hotHeight = mmToPx(SIDEBAR_TOP_RIGHT_GESTURE_HOT_SIZE_MM, displayMetrics.ydpi)
+            if (
+                SidebarZoomState.getVisibleFrame(
+                    context.contentResolver,
+                    displayMetrics.widthPixels,
+                    displayMetrics.heightPixels,
+                    sidebarZoomVisibleFrame,
+                )
+            ) {
+                return event.rawX >= sidebarZoomVisibleFrame.right - hotWidth &&
+                    event.rawX <= sidebarZoomVisibleFrame.right + hotWidth &&
+                    event.rawY >= sidebarZoomVisibleFrame.top - hotHeight &&
+                    event.rawY <= sidebarZoomVisibleFrame.top + hotHeight
+            }
             return event.rawX >= displayMetrics.widthPixels - hotWidth && event.rawY <= hotHeight
+        }
+
+        private fun mmToPx(mm: Float, dpi: Float): Int {
+            val resolvedDpi =
+                if (dpi > 0f && !dpi.isNaN() && !dpi.isInfinite()) {
+                    dpi
+                } else {
+                    context.resources.displayMetrics.densityDpi.toFloat().coerceAtLeast(1f)
+                }
+            return kotlin.math.round(mm * resolvedDpi / MM_PER_INCH).toInt().coerceAtLeast(1)
+        }
+
+        private fun isSidebarTopRightDiagonalGesture(event: MotionEvent): Boolean {
+            val deltaX = event.rawX - initialTouchRawX
+            val deltaY = event.rawY - initialTouchRawY
+            val absDeltaX = kotlin.math.abs(deltaX)
+            return deltaX < -touchSlop &&
+                deltaY > touchSlop &&
+                absDeltaX >= deltaY * SIDEBAR_TOP_RIGHT_GESTURE_MIN_HORIZONTAL_RATIO &&
+                absDeltaX <= deltaY * SIDEBAR_TOP_RIGHT_GESTURE_MAX_HORIZONTAL_RATIO
+        }
+
+        private fun isSidebarTopRightShadeGesture(event: MotionEvent): Boolean {
+            val deltaX = event.rawX - initialTouchRawX
+            val deltaY = event.rawY - initialTouchRawY
+            val absDeltaX = kotlin.math.abs(deltaX)
+            return deltaY > touchSlop * SIDEBAR_TOP_RIGHT_SHADE_MIN_VERTICAL_TOUCH_SLOP_MULTIPLIER &&
+                absDeltaX <= deltaY * SIDEBAR_TOP_RIGHT_SHADE_MAX_HORIZONTAL_RATIO
         }
     }
 

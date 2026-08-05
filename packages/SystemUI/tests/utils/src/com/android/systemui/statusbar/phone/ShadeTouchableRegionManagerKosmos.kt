@@ -22,6 +22,7 @@ import com.android.systemui.bouncer.domain.interactor.primaryBouncerInteractor
 import com.android.systemui.communal.domain.interactor.communalSceneInteractor
 import com.android.systemui.desktop.domain.interactor.desktopInteractor
 import com.android.systemui.kosmos.Kosmos
+import com.android.systemui.shade.shadeController
 import com.android.systemui.scene.domain.interactor.sceneInteractor
 import com.android.systemui.shade.domain.interactor.shadeInteractor
 import com.android.systemui.shade.domain.interactor.shadeModeInteractor
@@ -38,6 +39,7 @@ var Kosmos.shadeTouchableRegionManager by
             notificationShadeWindowController,
             configurationController,
             mockHeadsUpManager,
+            shadeController,
             shadeInteractor,
             { sceneInteractor },
             javaAdapter,
