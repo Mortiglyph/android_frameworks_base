@@ -34,6 +34,7 @@ import android.view.MotionEvent.CLASSIFICATION_MULTI_FINGER_SWIPE
 import android.view.ViewRootImpl.CLIENT_TRANSIENT
 import android.widget.OverScroller
 import com.android.internal.R
+import com.android.internal.sidebar.SidebarZoomState
 import com.android.systemui.CoreStartable
 import java.io.PrintWriter
 import javax.inject.Inject
@@ -53,6 +54,8 @@ constructor(context: Context, gestureDetector: GesturePointerEventDetector) : Co
 
     // The thresholds for each edge of the display
     private val mSwipeStartThreshold = Rect()
+    private val mSidebarZoomVisibleFrame = Rect()
+    private val mSidebarGestureFrame = Rect()
     private var mSwipeDistanceThreshold = 0
     private var mCallbacks: Callbacks? = null
     private val mDownPointerId = IntArray(MAX_TRACKED_POINTERS)
@@ -373,34 +376,54 @@ constructor(context: Context, gestureDetector: GesturePointerEventDetector) : Co
                     ") in " +
                     elapsed
             )
+        val gestureFrame = getSidebarGestureFrame()
         if (
-            fromY <= mSwipeStartThreshold.top &&
+            fromY >= gestureFrame.top - mSwipeStartThreshold.top &&
+                fromY <= gestureFrame.top + mSwipeStartThreshold.top &&
                 y > fromY + mSwipeDistanceThreshold &&
                 elapsed < SWIPE_TIMEOUT_MS
         ) {
             return SWIPE_FROM_TOP
         }
         if (
-            fromY >= screenHeight - mSwipeStartThreshold.bottom &&
+            fromY >= gestureFrame.bottom - mSwipeStartThreshold.bottom &&
+                fromY <= gestureFrame.bottom + mSwipeStartThreshold.bottom &&
                 y < fromY - mSwipeDistanceThreshold &&
                 elapsed < SWIPE_TIMEOUT_MS
         ) {
             return SWIPE_FROM_BOTTOM
         }
         if (
-            fromX >= screenWidth - mSwipeStartThreshold.right &&
+            fromX >= gestureFrame.right - mSwipeStartThreshold.right &&
+                fromX <= gestureFrame.right + mSwipeStartThreshold.right &&
                 x < fromX - mSwipeDistanceThreshold &&
                 elapsed < SWIPE_TIMEOUT_MS
         ) {
             return SWIPE_FROM_RIGHT
         }
         return if (
-            fromX <= mSwipeStartThreshold.left &&
+            fromX >= gestureFrame.left - mSwipeStartThreshold.left &&
+                fromX <= gestureFrame.left + mSwipeStartThreshold.left &&
                 x > fromX + mSwipeDistanceThreshold &&
                 elapsed < SWIPE_TIMEOUT_MS
         ) {
             SWIPE_FROM_LEFT
         } else SWIPE_NONE
+    }
+
+    private fun getSidebarGestureFrame(): Rect {
+        if (
+            SidebarZoomState.getVisibleFrame(
+                mContext.contentResolver,
+                screenWidth,
+                screenHeight,
+                mSidebarZoomVisibleFrame,
+            )
+        ) {
+            return mSidebarZoomVisibleFrame
+        }
+        mSidebarGestureFrame.set(0, 0, screenWidth, screenHeight)
+        return mSidebarGestureFrame
     }
 
     fun dump(pw: PrintWriter, prefix: String) {

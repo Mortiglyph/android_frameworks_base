@@ -32,6 +32,7 @@ import android.hardware.display.DisplayManagerGlobal;
 import android.os.Handler;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.util.DisplayMetrics;
 import android.util.Slog;
 import android.view.Display;
 import android.view.DisplayCutout;
@@ -41,6 +42,8 @@ import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.WindowManagerPolicyConstants.PointerEventListener;
 import android.widget.OverScroller;
+
+import com.android.internal.sidebar.SidebarZoomState;
 
 import java.io.PrintWriter;
 
@@ -69,8 +72,9 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
     private static final int SIDEBAR_DESIGN_WIDTH = 1080;
     private static final int TOP_RIGHT_DIAGONAL_MIN_INWARD_PX = 80;
     private static final int TOP_RIGHT_DIAGONAL_MIN_DOWN_PX = 30;
-    private static final float TOP_RIGHT_DIAGONAL_HOT_WIDTH_RATIO = 0.30f;
-    private static final float TOP_RIGHT_DIAGONAL_HOT_HEIGHT_RATIO = 0.36f;
+    private static final float TOP_RIGHT_DIAGONAL_HOT_SIZE_MM = 10f;
+    private static final float MM_PER_INCH = 25.4f;
+    private static final float TOP_RIGHT_DIAGONAL_MIN_HORIZONTAL_RATIO = 0.75f;
     private static final float TOP_RIGHT_DIAGONAL_MAX_RATIO = 5.0f;
     private static final String SIDEBAR_ENABLED = "side_bar_mode";
     private static final String THUMB_PUSH_DOWN = "thumb_push_down";
@@ -78,14 +82,9 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
     private static final long THUMB_PULL_DOWN_TIMEOUT_MS = 1000;
     private static final int THUMB_PULL_DOWN_MIN_START_Y = 150;
     private static final int THUMB_PULL_DOWN_TOUCH_SIZE_MIN_DISTANCE_PX = 180;
-    private static final int THUMB_PULL_DOWN_FALLBACK_MIN_DISTANCE_PX = 180;
     private static final float THUMB_PULL_DOWN_TOUCH_SIZE_VERTICAL_RATIO = 1.8f;
-    private static final float THUMB_PULL_DOWN_FALLBACK_VERTICAL_RATIO = 2.4f;
     private static final float THUMB_PULL_DOWN_MAX_HORIZONTAL_RATIO = 0.12f;
     private static final float THUMB_SIDE_TRACK_EXTRA_RATIO = 0.05f;
-    private static final float[] THUMB_TOUCH_SIZE_THRESHOLDS = {
-            0.31f, 0.36f, 0.40f, 0.46f, 0.50f
-    };
     private static final float[] THUMB_SIDE_AREA_RATIOS = {
             0.05f, 0.07f, 0.10f, 0.13f, 0.16f
     };
@@ -101,6 +100,8 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
     private int mDisplayCutoutTouchableRegionSize;
     // The thresholds for each edge of the display
     private final Rect mSwipeStartThreshold = new Rect();
+    private final Rect mSidebarZoomVisibleFrame = new Rect();
+    private final Rect mSidebarGestureFrame = new Rect();
     private int mSwipeDistanceThreshold;
     private final Callbacks mCallbacks;
     private final int[] mDownPointerId = new int[MAX_TRACKED_POINTERS];
@@ -432,28 +433,33 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
         if (isPendingSwipeFromTopRightDiagonal(fromX, fromY, x, y, elapsed)) {
             return SWIPE_NONE;
         }
-        if (fromY <= mSwipeStartThreshold.top
+        final Rect gestureFrame = getSidebarGestureFrame();
+        if (detectSwipeUpFromZoomOutTopRight(fromX, fromY, x, y, elapsed)) {
+            return SWIPE_UP_FROM_ZOOM_OUT_TOP_RIGHT;
+        }
+        if (fromY >= gestureFrame.top - mSwipeStartThreshold.top
+                && fromY <= gestureFrame.top + mSwipeStartThreshold.top
                 && y > fromY + mSwipeDistanceThreshold
                 && elapsed < SWIPE_TIMEOUT_MS) {
             return SWIPE_FROM_TOP;
         }
-        if (fromY >= screenHeight - mSwipeStartThreshold.bottom
+        if (fromY >= gestureFrame.bottom - mSwipeStartThreshold.bottom
+                && fromY <= gestureFrame.bottom + mSwipeStartThreshold.bottom
                 && y < fromY - mSwipeDistanceThreshold
                 && elapsed < SWIPE_TIMEOUT_MS) {
             return SWIPE_FROM_BOTTOM;
         }
-        if (fromX >= screenWidth - mSwipeStartThreshold.right
+        if (fromX >= gestureFrame.right - mSwipeStartThreshold.right
+                && fromX <= gestureFrame.right + mSwipeStartThreshold.right
                 && x < fromX - mSwipeDistanceThreshold
                 && elapsed < SWIPE_TIMEOUT_MS) {
             return SWIPE_FROM_RIGHT;
         }
-        if (fromX <= mSwipeStartThreshold.left
+        if (fromX >= gestureFrame.left - mSwipeStartThreshold.left
+                && fromX <= gestureFrame.left + mSwipeStartThreshold.left
                 && x > fromX + mSwipeDistanceThreshold
                 && elapsed < SWIPE_TIMEOUT_MS) {
             return SWIPE_FROM_LEFT;
-        }
-        if (detectSwipeUpFromZoomOutTopRight(fromX, fromY, x, y, elapsed)) {
-            return SWIPE_UP_FROM_ZOOM_OUT_TOP_RIGHT;
         }
         if (detectThumbPullDown(fromX, fromY, x, y, elapsed, size)) {
             return SWIPE_THUMB_PULL_DOWN;
@@ -466,22 +472,20 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
         if (screenWidth <= 0 || screenHeight <= 0 || elapsed >= SWIPE_TIMEOUT_MS) {
             return false;
         }
-        final int contentWidth = Math.max(1,
-                Math.round(screenWidth * SIDEBAR_CONTENT_WIDTH_NUMERATOR
-                        / (float) SIDEBAR_DESIGN_WIDTH));
-        final int contentHeight = Math.max(1,
-                Math.round(contentWidth * screenHeight / (float) screenWidth));
-        final int contentTop = screenHeight - contentHeight;
+        final Rect zoomFrame = getSidebarZoomVisibleFrame();
+        if (zoomFrame == null) {
+            return false;
+        }
         final int hotWidth = Math.max(mSwipeDistanceThreshold * 3,
                 mSwipeStartThreshold.right * 4);
         final int hotHeight = Math.max(mSwipeDistanceThreshold * 3,
                 mSwipeStartThreshold.top * 4);
         final float deltaX = x - fromX;
         final float deltaY = y - fromY;
-        return fromX >= contentWidth - hotWidth
-                && fromX <= contentWidth + mSwipeStartThreshold.right
-                && fromY >= contentTop - mSwipeStartThreshold.top
-                && fromY <= contentTop + hotHeight
+        return fromX >= zoomFrame.right - hotWidth
+                && fromX <= zoomFrame.right + mSwipeStartThreshold.right
+                && fromY >= zoomFrame.top - mSwipeStartThreshold.top
+                && fromY <= zoomFrame.top + hotHeight
                 && deltaY < -mSwipeDistanceThreshold
                 && Math.abs(deltaY) >= Math.abs(deltaX);
     }
@@ -502,6 +506,7 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
         return isFromTopRightDiagonalHotRegion(fromX, fromY)
                 && deltaX < -minInward
                 && deltaY > minDown
+                && absDeltaX >= deltaY * TOP_RIGHT_DIAGONAL_MIN_HORIZONTAL_RATIO
                 && absDeltaX <= deltaY * TOP_RIGHT_DIAGONAL_MAX_RATIO;
     }
 
@@ -516,47 +521,70 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
         }
         final float deltaX = x - fromX;
         final float deltaY = y - fromY;
-        return deltaX <= mSwipeDistanceThreshold
+        final float absDeltaX = Math.abs(deltaX);
+        return deltaX < -mSwipeDistanceThreshold / 2f
                 && deltaY >= 0
-                && (Math.abs(deltaX) > mSwipeDistanceThreshold
-                        || deltaY > mSwipeDistanceThreshold);
+                && absDeltaX >= deltaY * TOP_RIGHT_DIAGONAL_MIN_HORIZONTAL_RATIO;
     }
 
     private boolean isFromTopRightDiagonalHotRegion(float fromX, float fromY) {
-        final int hotWidth = Math.max(mSwipeDistanceThreshold * 5,
-                Math.round(screenWidth * TOP_RIGHT_DIAGONAL_HOT_WIDTH_RATIO));
-        final int hotHeight = Math.max(mSwipeDistanceThreshold * 4,
-                Math.round(screenHeight * TOP_RIGHT_DIAGONAL_HOT_HEIGHT_RATIO));
+        final DisplayMetrics metrics = mContext.getResources().getDisplayMetrics();
+        final int hotWidth = Math.max(mSwipeStartThreshold.right,
+                mmToPx(TOP_RIGHT_DIAGONAL_HOT_SIZE_MM, metrics.xdpi, metrics.densityDpi));
+        final int hotHeight = Math.max(mSwipeStartThreshold.top,
+                mmToPx(TOP_RIGHT_DIAGONAL_HOT_SIZE_MM, metrics.ydpi, metrics.densityDpi));
+        final Rect zoomFrame = getSidebarZoomVisibleFrame();
+        if (zoomFrame != null) {
+            return fromX >= zoomFrame.right - hotWidth
+                    && fromX <= zoomFrame.right + mSwipeStartThreshold.right
+                    && fromY >= zoomFrame.top - mSwipeStartThreshold.top
+                    && fromY <= zoomFrame.top + hotHeight;
+        }
         return fromX >= screenWidth - hotWidth
                 && fromY <= hotHeight;
     }
 
+    private Rect getSidebarZoomVisibleFrame() {
+        return SidebarZoomState.getVisibleFrame(mContext.getContentResolver(), screenWidth,
+                screenHeight, mSidebarZoomVisibleFrame) ? mSidebarZoomVisibleFrame : null;
+    }
+
+    private Rect getSidebarGestureFrame() {
+        final Rect zoomFrame = getSidebarZoomVisibleFrame();
+        if (zoomFrame != null) {
+            return zoomFrame;
+        }
+        mSidebarGestureFrame.set(0, 0, screenWidth, screenHeight);
+        return mSidebarGestureFrame;
+    }
+
+    private int mmToPx(float mm, float dpi, int fallbackDpi) {
+        final int resolvedDpi = dpi > 0f && !Float.isNaN(dpi) && !Float.isInfinite(dpi)
+                ? Math.round(dpi) : Math.max(1, fallbackDpi);
+        return Math.max(1, Math.round(mm * resolvedDpi / MM_PER_INCH));
+    }
+
     private boolean detectThumbPullDown(float fromX, float fromY, float x, float y, long elapsed,
             float size) {
-        final boolean hasTouchSize = hasTouchSize(size);
         if (!isThumbPullDownEnabled()
                 || elapsed >= THUMB_PULL_DOWN_TIMEOUT_MS
                 || fromY < Math.max(mSwipeStartThreshold.top * 2, THUMB_PULL_DOWN_MIN_START_Y)
                 || !isInThumbSideArea(fromX)
-                || (hasTouchSize && !isLargeTouch(size))) {
+                || !hasTouchSize(size)
+                || !isLargeTouch(size)) {
             return false;
         }
         final float deltaX = x - fromX;
         final float deltaY = y - fromY;
-        final float minDistance = hasTouchSize
-                ? Math.max(mSwipeDistanceThreshold * 1.5f,
-                        THUMB_PULL_DOWN_TOUCH_SIZE_MIN_DISTANCE_PX)
-                : Math.max(mSwipeDistanceThreshold * 3f,
-                        THUMB_PULL_DOWN_FALLBACK_MIN_DISTANCE_PX);
-        final float verticalRatio = hasTouchSize
-                ? THUMB_PULL_DOWN_TOUCH_SIZE_VERTICAL_RATIO
-                : THUMB_PULL_DOWN_FALLBACK_VERTICAL_RATIO;
+        final float minDistance = Math.max(mSwipeDistanceThreshold * 1.5f,
+                THUMB_PULL_DOWN_TOUCH_SIZE_MIN_DISTANCE_PX);
         final float maxHorizontalDistance = Math.max(mSwipeDistanceThreshold * 2f,
                 screenWidth * THUMB_PULL_DOWN_MAX_HORIZONTAL_RATIO);
         return deltaY > minDistance
                 && Math.abs(deltaX) <= maxHorizontalDistance
                 && isInThumbSideArea(x, THUMB_SIDE_TRACK_EXTRA_RATIO)
-                && deltaY > Math.max(1f, Math.abs(deltaX)) * verticalRatio;
+                && deltaY > Math.max(1f, Math.abs(deltaX))
+                        * THUMB_PULL_DOWN_TOUCH_SIZE_VERTICAL_RATIO;
     }
 
     private boolean hasTouchSize(float size) {
@@ -580,7 +608,9 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
     }
 
     private boolean isThumbPullDownEnabled() {
-        return isSidebarEnabled()
+        return mContext.getResources().getBoolean(
+                com.android.internal.R.bool.config_oneStepTouchSizeSupported)
+                && isSidebarEnabled()
                 && Boolean.parseBoolean(Settings.Global.getString(mContext.getContentResolver(),
                         THUMB_PUSH_DOWN));
     }
@@ -590,13 +620,15 @@ class SystemGesturesPointerEventListener implements PointerEventListener {
     }
 
     private float getThumbTouchSizeThreshold() {
+        final int[] thresholds = mContext.getResources().getIntArray(
+                com.android.internal.R.array.config_oneStepThumbSizeThresholdPermille);
         int index = Settings.Global.getInt(mContext.getContentResolver(), THUMB_TRIGGER_AREA, 2);
         if (index < 0) {
             index = 0;
-        } else if (index >= THUMB_TOUCH_SIZE_THRESHOLDS.length) {
-            index = THUMB_TOUCH_SIZE_THRESHOLDS.length - 1;
+        } else if (index >= thresholds.length) {
+            index = thresholds.length - 1;
         }
-        return THUMB_TOUCH_SIZE_THRESHOLDS[index];
+        return thresholds[index] / 1000f;
     }
 
     private float getThumbSideAreaRatio() {

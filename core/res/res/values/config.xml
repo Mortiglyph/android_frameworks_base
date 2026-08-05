@@ -24,6 +24,20 @@
      entries do not follow the convention, but all new entries should. -->
 
 <resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Whether the touch controller provides meaningful contact-size data for OneStep's
+         thumb pull-down gesture. Devices with binary or missing size data must disable it. -->
+    <bool name="config_oneStepTouchSizeSupported">true</bool>
+
+    <!-- Minimum normalized touch size for each OneStep thumb trigger-area setting, in
+         thousandths. Devices should overlay these values to match their touch controller. -->
+    <integer-array name="config_oneStepThumbSizeThresholdPermille">
+        <item>310</item>
+        <item>360</item>
+        <item>400</item>
+        <item>460</item>
+        <item>500</item>
+    </integer-array>
+
     <!-- Do not translate. Defines the slots for the right-hand side icons.  That is to say, the
          icons in the status bar that are not notifications. -->
     <string-array name="config_statusBarIcons">
