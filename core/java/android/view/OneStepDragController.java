@@ -388,8 +388,7 @@ final class OneStepDragController {
             final ViewGroup group = (ViewGroup) view;
             final int childCount = group.getChildCount();
             for (int i = childCount - 1; i >= 0; i--) {
-                final int childIndex = group.getChildDrawingOrder(i);
-                final View child = group.getChildAt(childIndex);
+                final View child = group.getChildAt(i);
                 if (child == null || !child.canReceivePointerEvents()) {
                     continue;
                 }
