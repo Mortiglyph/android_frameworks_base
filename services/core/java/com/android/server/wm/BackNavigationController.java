@@ -51,6 +51,7 @@ import android.os.IBinder;
 import android.os.RemoteCallback;
 import android.os.RemoteException;
 import android.os.SystemProperties;
+import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Pair;
 import android.util.Slog;
@@ -83,6 +84,9 @@ import java.util.Objects;
  */
 class BackNavigationController {
     private static final String TAG = "CoreBackPreview";
+    private static final String SIDEBAR_SWITCH_STATUS = "sidebar_switch_status";
+    private static final String SIDEBAR_ZOOM_TYPE = "side_bar_zoom_type";
+    private static final int SIDEBAR_MODE_RIGHT = 2;
     private WindowManagerService mWindowManagerService;
     private boolean mBackAnimationInProgress;
     private @BackNavigationInfo.BackTargetType int mLastBackType;
@@ -231,6 +235,7 @@ class BackNavigationController {
             if (!window.getDisplayContent().getImeContainer().isVisible()) {
                 window = mWindowManagerService.getMostRecentUsedEmbeddedWindowForBack(window);
             }
+            window = resolveOneStepBackTarget(window);
             if (!window.isDrawn()) {
                 ProtoLog.d(WM_DEBUG_BACK_PREVIEW,
                         "Focused window didn't have a valid surface drawn.");
@@ -480,6 +485,39 @@ class BackNavigationController {
             mLastBackType = backType;
             return infoBuilder.build();
         }
+    }
+
+    private WindowState resolveOneStepBackTarget(WindowState window) {
+        if (window == null || window.canAffectSystemUiFlags() || !isOneStepSidebarActive()) {
+            return window;
+        }
+        final DisplayContent displayContent = window.getDisplayContent();
+        if (displayContent == null) {
+            return window;
+        }
+        final WindowState target = displayContent.getWindow(w -> w != window
+                && w.mActivityRecord != null
+                && w.getTask() != null
+                && w.canAffectSystemUiFlags()
+                && w.isDrawn()
+                && w.isVisible()
+                && w.getTask().isVisibleRequested()
+                && w.mAttrs.type == TYPE_BASE_APPLICATION);
+        if (target != null) {
+            Slog.d(TAG, "resolveOneStepBackTarget: " + window + " -> " + target);
+            return target;
+        }
+        return window;
+    }
+
+    private boolean isOneStepSidebarActive() {
+        final Context context = mWindowManagerService != null ? mWindowManagerService.mContext
+                : null;
+        return context != null
+                && Settings.Global.getInt(context.getContentResolver(), SIDEBAR_SWITCH_STATUS, 0)
+                        == 1
+                && Settings.Global.getInt(context.getContentResolver(), SIDEBAR_ZOOM_TYPE, -1)
+                        == SIDEBAR_MODE_RIGHT;
     }
 
     /**
